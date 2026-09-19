@@ -68,6 +68,100 @@ vault
 
 It tells you where you are, what sessions exist, who is in them, and what to do next.
 
+## Which situation are you in?
+
+Find yours, follow the arrows. Every box is a real command or something you'll see on screen.
+
+### A. "I'm new here and want to set up"
+
+```mermaid
+flowchart TD
+    A(["New Mac"]) --> B["gh repo clone shashb27/vault ~/.vault-cli<br/>~/.vault-cli/install.sh"]
+    B --> C["open a new terminal<br/>vault doctor"]
+    C --> D{"all ✓ except<br/>'inside a vault folder'?"}
+    D -- no --> E["follow the fix printed<br/>under each ✗"] --> C
+    D -- yes --> F["cd into the shared OneDrive folder<br/>your team uses (see it in Finder)"]
+    F --> G{"Did a teammate<br/>already make it a vault?"}
+    G -- "yes (vault says 'not joined')" --> H["vault join"]
+    G -- "no (vault says 'not inside a vault')" --> I["vault init"]
+    H --> J["Finder: right-click .vault →<br/>Always Keep on This Device"]
+    I --> J
+    J --> K(["type  vault  — it tells you what's next"])
+```
+
+### B. "I want to start working on something"
+
+```mermaid
+flowchart TD
+    A(["in the vault folder"]) --> B["vault"]
+    B --> C{"Is there already a session<br/>about this topic?"}
+    C -- no --> D["vault new planning-review"]
+    C -- yes --> E["vault resume planning-review"]
+    C -- "I'm not sure" --> F["vault resume<br/>(pick from a numbered list)"]
+    D --> G(["work in Claude as usual"])
+    E --> G
+    F --> G
+    G --> H["exit Claude: Ctrl+D or /exit"]
+    H --> I(["✓ handed off — vault prints the command<br/>your teammate runs next"])
+```
+
+### C. "A teammate handed me a session"
+
+```mermaid
+flowchart TD
+    A(["teammate says: vault resume planning-review"]) --> B["vault"]
+    B --> C{"STATE column says…"}
+    C -- "handed off" --> D["vault resume planning-review"] --> Z(["you're in their conversation,<br/>full context"])
+    C -- "in use by alex" --> E["Alex still has it open.<br/>Wait, or ask Alex to exit."]
+    E --> F{"Alex says they're done<br/>but STATE won't change?"}
+    F -- yes --> G["vault resume planning-review --steal"] --> Z
+    F -- no --> B
+    C -- "syncing" --> H["vault resume planning-review<br/>(it waits for OneDrive, up to 90 s)"]
+    H --> I{"ready in time?"}
+    I -- yes --> Z
+    I -- "no: 'still incomplete'" --> J["wait a minute, run it again"] --> H
+    C -- "unknown" --> K["vault resume planning-review"]
+    K --> L{"asks 'continue anyway?'"}
+    L -- "session idle over 15 min" --> Z
+    L -- "they might still be in it" --> M["answer N, ask them"] --> B
+    L -- "you're sure they're done" --> N["answer y"] --> Z
+    C -- "session isn't listed at all" --> O["OneDrive hasn't delivered it yet.<br/>Check the menu-bar icon, wait, run vault again"] --> B
+```
+
+### D. "I'm done for now"
+
+```mermaid
+flowchart TD
+    A(["finished, or handing over"]) --> B["exit Claude: Ctrl+D or /exit"]
+    B --> C["vault writes the clean-exit marker<br/>and waits for the OneDrive upload"]
+    C --> D(["✓ handed off — tell your teammate:<br/>vault resume planning-review"])
+    B -. "forgot and just closed the terminal?" .-> E["your teammate will be asked 'continue anyway?'<br/>or see 'in use by you' for up to 60 min"]
+    E --> F["run  vault resume planning-review  and exit cleanly,<br/>or tell them to use --steal"]
+```
+
+### E. "Something looks wrong"
+
+```mermaid
+flowchart TD
+    A(["something's off"]) --> B["vault doctor"]
+    B --> C{"what does it say?"}
+    C -- "✗ not joined" --> D["vault join"]
+    C -- "✗ OneDrive not running / paused" --> E["start OneDrive or resume sync<br/>from the menu-bar icon"]
+    C -- "✗ not pinned" --> F["Finder: right-click .vault →<br/>Always Keep on This Device"]
+    C -- "✗ conflict copies" --> G["vault conflicts"]
+    G --> H["vault conflicts show 1<br/>read the lost turns, paste what matters<br/>into a live session"]
+    C -- "! shared instruction files changed" --> I["skim CLAUDE.md / .claude/settings<br/>a teammate edited them — they steer Claude on YOUR Mac"]
+    C -- "all ✓ but a session is missing" --> J["OneDrive hasn't delivered it.<br/>Did they exit Claude? Was it started at the vault root?"]
+    C -- "all ✓, still stuck" --> K["vault status planning-review<br/>then open an issue with the output"]
+```
+
+### F. "I want Claude in this folder, but NOT shared"
+
+```mermaid
+flowchart LR
+    A(["private work in a vault folder"]) --> B["vault private"] --> C(["normal Claude, nothing lands in the vault"])
+```
+
 ## Everyday use
 
 | You want to… | Run |
@@ -113,7 +207,7 @@ Full trust model: [docs/safety.md](docs/safety.md).
 
 ## More
 
-- [docs/handoff.md](docs/handoff.md) — the two-person handoff, step by step, with what you'll see
+- [docs/handoff.md](docs/handoff.md) — the two-person handoff, step by step, with what you'll see (the long form of chart C)
 - [docs/troubleshooting.md](docs/troubleshooting.md) — symptoms → causes → fixes
 - [docs/safety.md](docs/safety.md) — trust model, what leaks, what doesn't
 - [docs/DESIGN.md](docs/DESIGN.md) — how it works (symlinked project dir, leases, sync gates)
