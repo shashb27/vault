@@ -1,0 +1,110 @@
+# Vault POC — Test Evidence
+
+**Date:** 2026-07-09 · **Environment:** macOS, Claude Code 2.1.170, single machine
+**Method:** two simulated users = two distinct directories (`u1/`, `u2/`) whose
+`~/.claude/projects/<enc>` symlinks resolve to one shared `.vault` store (simulating
+two synced OneDrive replicas with zero latency). Real two-machine OneDrive validation
+is **T9 — still required before any demo** (see DESIGN.md §9).
+
+| # | Check | Result | Evidence |
+|---|-------|--------|----------|
+| T1 | join: symlink + backup semantics | ✅ PASS | Pre-existing local session dir moved to `~/.claude/vault-backups/<enc>.<ts>/` (local-only, NOT shared, NOT merged); both users' symlinks healthy |
+| T2 | U1 session lands in vault | ✅ PASS | `vault claude -p … --session-id c46be3c9…` → `c46be3c9….jsonl` in shared store; handoff marker written; lease released |
+| T3 | R1/R3 visibility + attribution | ✅ PASS | `vault sessions` as U2: `c46be3c9… alice-sim alice-sim 2026-07-09 13:29 12264` (+ "heuristic, not verified identity" caveat printed) |
+| T4 | R2 handoff — same session, bidirectional | ✅ PASS | U2 `vault resume c46be3c9… -p "what codeword?"` → **FALCON-42**. Same file grew 10→19 lines, **no new session file**, U2's turns grep-able in the original transcript (U1's view) |
+| T5 | Lease block / steal / release | ✅ PASS | Foreign fresh lease → refusal with holder+time+override hint (exit 1); `--steal` warns and proceeds; lease file gone after run |
+| T6 | Plain `claude` (no wrapper) | ✅ PASS | Bare `claude -p` at vault root → transcript in shared store (the whiteboard flow needs no wrapper after join) |
+| T7 | leave restores + honest warning | ✅ PASS | Symlink removed; pre-join backup restored byte-identical; shared store untouched; "leave ≠ un-share" warning printed |
+| T8 | Cross-user file work (dead paths) | ✅ PASS | U1's dir renamed away (all transcript paths dead); U2 `vault resume` + reorientation prompt → Claude re-resolved `notes.txt` at U2's root and appended correctly |
+| T-torn | Truncated (mid-sync) transcript | ✅ PASS + finding | Wrapper refused ("ends mid-record… retry"). **Finding:** bare `claude --resume` TOLERATES a torn file — silently skips the bad tail and continues from stale context (answered from truncated history, exit 0). Silent context loss, not a crash → the wrapper gate is the only tell |
+| T-purge | `claude project purge` on a joined project | ✅ PASS (good outcome) | Purge removes **only the local symlink**; shared store contents survive. Purge = broken join (re-join fixes), NOT team data loss |
+| T9 | Two-machine OneDrive dry run | ⏳ **PENDING — requires a second person/machine** | Must verify: `.vault` dot-folder syncs, transcript+marker propagation time, dataless materialization, real resume |
+
+## Bugs found & fixed during testing
+1. `vault join` deduped registry entries by (user, host) only — a user joining from a
+   second path was silently not registered. Fixed: dedupe by (user, host, vault_path).
+2. `vault sessions` exited 1 when there were zero conflict copies (trailing
+   `[[ … ]] && warn` as the function's last statement under `set -e`). Fixed with `if`.
+
+## Empirical facts recorded for DESIGN.md
+- `claude -p --resume <id>` appends to the same `<id>.jsonl` — no fork (T4).
+- Bare resume on torn transcripts: tolerant, silent stale-context continuation (T-torn).
+- `claude project purge` does not traverse the project-dir symlink (T-purge).
+- Resume works when the recorded `cwd` no longer exists; with the reorientation
+  system prompt, file work recovers on the new machine (T8).
+
+## Simulation caveats (honest limits of this evidence)
+- Zero sync latency: OneDrive propagation, dataless files, conflict copies and lease
+  races are NOT exercised — that is exactly what T9 covers.
+- Both simulated users share one macOS account: attribution labels were seeded into
+  `users.json` manually; `leave` deregistration matched the real username instead of
+  the sim labels (works correctly when users are actually distinct).
+
+---
+
+# Round 2 — Adversarial code review + fixes + regression (2026-07-10)
+
+**Method:** Workflow with 3 finder agents (bash correctness / state safety / doc-contract
+fidelity), every finding independently verified by a skeptic agent with sandboxed
+repro attempts (24 agents total). **Result: 21 findings CONFIRMED, 0 refuted.** All fixed.
+
+## Highlights
+| Sev | Finding | Fix |
+|---|---|---|
+| **CRITICAL** | `encode_path` didn't match Claude's real encoding (ALL non-alphanumerics → `-`, per UTF-16 unit, >200-char truncation+hash). Any vault path with a space/underscore/etc. would **silently not share** — R1/R2 fail with zero errors. Round-1 tests passed only because sim paths had no specials. Verifier reproduced Claude's encoder from the binary and validated a python3 replica byte-for-byte (incl. unicode + hash suffix) | Exact encoder replica; realpath canonicalization; **empirical join self-test** (launch `claude -p` once, verify no new project dir appeared → symlink actually used; rollback + loud failure otherwise) |
+| MAJOR | `finish_handoff` marked ANY transcript that changed mid-run as cleanly handed off — incl. other members' sessions syncing in → false-green handoff gate | Only mark sessions whose last-entry `cwd` is this user's vault root |
+| MAJOR | Stale `.done` marker never invalidated on resume — resumer crash leaves false green | `vault resume` removes the marker at launch; rewritten only on clean exit |
+| MAJOR | `vault sessions` never read `index.json` (bulk-download mitigation didn't exist) and rewrote the index per file | Index-first single-pass; only changed/new transcripts opened; one write. Regression shows `(0 transcript(s) opened, 2 served from index)` |
+| MAJOR | `quarantine_conflicts` could overwrite an earlier quarantined copy — destroying the only copy of those turns | Collision-safe rename with timestamp suffix |
+| MAJOR | `check_drift` wrote its baseline silently on first run — a new member is never warned about pre-existing CLAUDE.md/settings (the exact injection window) | First run now lists all pre-existing instruction/permission files with a review-now warning |
+| MAJOR | `vault status <id>` exited 1 on healthy non-OneDrive vaults (`set -e` + trailing `&&`) | if-block |
+| MINOR ×8 | Lease no-op for same user@host (+ premature delete by 2nd instance); greedy UUID capture in resume args; user `--append-system-prompt` clobbered; leave mid-session splits state; join message overstated subfolder sharing; memory/ conflict check missing; etc. | Live-pid lease check + pid-owned release; first-positional-only UUID; prompt merge; lease-guarded leave + `--force`; honest root-only message; stem-duplicate memory conflict check |
+
+## Regression (fresh sim at hostile path `…/vault sim_2 (u1)`)
+| Check | Result |
+|---|---|
+| R1 join at path with space/underscore/parens; self-test | ✅ symlink at claude's true encoding (`…-vault-sim-2--u1-`); "self-test: claude used the vault symlink ✓" |
+| R2/R3 session + resume same-file + marker invalidation/rewrite | ✅ OSPREY-7 answered; marker cycle correct |
+| R4 index caching | ✅ second listing: 0 opened, 2 from index |
+| R5 status exit code (non-cloud) | ✅ exit 0 |
+| R6 leave lease-guard + `--force` | ✅ refused, then forced; symlink removed |
+
+`encode_path` unit checks: `/tmp/my vault_dir` → `-tmp-my-vault-dir` · `/tmp/café_vault`
+→ `-tmp-caf--vault` (é = one UTF-16 unit = one dash, matching claude) · `/a/b.c-d` → `-a-b-c-d`.
+
+---
+
+# Round 3 — Opus QA fleet + orchestrator, end-to-end (2026-07-10)
+
+**Method:** 3 parallel Opus QA agents in isolated sandboxes (hostile paths with spaces),
+each running live `claude` sessions — QA1 functional E2E (10 checks), QA2 docs-vs-reality
+audit (14 checks), QA3 negative/edge (13 checks) — then an Opus orchestrator (max effort)
+reconciled all reports into a final verdict.
+
+## Orchestrator verdict: **PASS_WITH_ISSUES**
+| Area | Verdict |
+|---|---|
+| R1 shared visibility | ✅ verified (sim-level; cross-machine gated on T9) |
+| R2 handoff, same session, bidirectional | ✅ verified (KESTREL-9 answered; zero forks; both users' turns in one file) |
+| R3 isolated-but-visible | ✅ verified (+ inverse invariants: subfolder & `--private` sessions correctly stay private) |
+| Lease machinery (block/steal/expired/release/leave-guard) | ✅ verified |
+| Torn-transcript guard | ✅ verified (refuses before lease/launch; file untouched) |
+| Conflict quarantine (incl. collision-safety) | ✅ verified |
+| Drift warnings (first-run + changed) | ✅ verified |
+| Join self-test | ⚠️ partially-verified → defect found + FIXED (below) |
+
+## Defects confirmed by the fleet → resolution
+| Sev | Defect | Resolution |
+|---|---|---|
+| MAJOR | Join self-test used a **global** `~/.claude/projects` before/after diff → unrelated concurrent claude activity caused a false "join FAILED" rollback (QA1 reproduced it live; fails closed, but the POC targets multi-session machines) | **FIXED:** self-test now nonce-scoped — finds the transcript containing a per-join nonce in the vault sessions dir (proof of traversal), checks stray dirs only for that nonce (still catches encoding divergence), never false-fails on concurrency. Re-verified with a deliberately injected concurrent project dir mid-join: join succeeded |
+| MINOR | Every join left a throwaway self-test transcript in the shared pool forever | **FIXED:** transcript (+ handoff marker + session dir) deleted after verification; re-verified: sessions dir empty post-join |
+| MINOR | DESIGN §4 described a phantom `title` column in `vault sessions` and omitted `size` | **FIXED** in DESIGN §4 |
+| MINOR | Flag docs inconsistent (`vault help` omitted `leave --force`; README omitted `claude --steal`) | **FIXED** in help text + README + DESIGN |
+
+## Orchestrator demo-readiness ruling
+Safe to demo today (single-machine/same-account): the full CLI, R1/R2/R3, and every
+guard — all exercised live at hostile paths. Still gated on **T9** (real two-machine
+OneDrive): cross-machine propagation, dataless files, real conflict copies, lease races.
+The orchestrator also correctly noted claude-binary facts (torn-tolerance of bare
+resume, purge behavior, >200-char encoding) rest on Round-1/2 evidence, not re-verified
+by this fleet.
