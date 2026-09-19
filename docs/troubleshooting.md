@@ -1,0 +1,92 @@
+# Troubleshooting
+
+Start with `vault doctor`. It checks Claude, python3, OneDrive, your join, pinning and
+conflicts, and prints a fix for each ✗. Then look here.
+
+## "You are not inside a vault folder"
+
+You ran a vault command outside a vault. `vault` (no arguments) lists the vaults you've
+joined on this Mac so you can `cd` into one. Sessions only share from the vault **root**;
+launching in a subfolder makes a private session.
+
+## "You have not joined this vault yet"
+
+The folder is a vault (someone ran `vault init`) but your Mac isn't linked to it. Run
+`vault join`.
+
+## join says "could not verify"
+
+Claude couldn't run (not logged in, or offline). You're joined but unproven: run
+`vault new test`, say hi, exit, and confirm it appears in `vault sessions`.
+
+## join says "join FAILED"
+
+This Claude version stores sessions somewhere the vault doesn't expect. Nothing was
+joined. Please [open an issue](https://github.com/shashb27/vault/issues) with your
+`claude --version`.
+
+## A teammate's session doesn't appear
+
+OneDrive hasn't delivered it yet. Check the OneDrive menu-bar icon; `vault status` shows
+whether OneDrive is running or paused. Did they exit Claude? Was their session started at
+the vault root (not a subfolder)?
+
+## `vault resume` waits, then says the transcript is incomplete
+
+The file on your Mac ends mid-record; OneDrive is still delivering it. Wait a minute and
+retry. `vault status <name>` shows the sync state. Bare `claude --resume` would silently
+continue from the stale part, which is why the wrapper refuses.
+
+## `vault resume` asks "continue anyway?"
+
+The transcript is complete but nobody wrote a clean-exit marker for it. Either the last
+person is still in it, their exit hasn't synced, or the session was started with plain
+`claude` (no wrapper). Ask them, or wait. If it's been idle over 15 minutes and nobody
+holds it, vault stops asking.
+
+## "… is in this session right now"
+
+Someone holds the session lease. Ask them to exit. If they've crashed or forgotten, and
+you're sure: `vault resume <name> --steal`.
+
+## Sessions show `(unnamed)`
+
+They were started with plain `claude`, or with an older vault version. Name them:
+`vault rename <id-prefix> <name>`. Use `vault new <name>` going forward.
+
+## "two people were in one session at the same time" / conflicts
+
+OneDrive kept two copies of a session. The extra copy was moved to `.vault/conflicts/`
+and its turns are **not** in the main session. `vault conflicts` lists them and
+`vault conflicts show <#>` prints the human/assistant turns so you can paste anything
+important back into a live session. Prevention: one person per session; exit when done.
+
+## "shared instruction/permission files changed"
+
+A teammate edited `CLAUDE.md` or `.claude/settings*.json` in the vault. Those apply to
+Claude on your Mac. Skim them before working. See [safety.md](safety.md).
+
+## Claude asks for folder trust or permissions you already granted elsewhere
+
+Trust and permission grants are per-person, by design. Grant them yourself. Never
+"don't ask again" inside a vault.
+
+## `vault` isn't found after install
+
+Open a new terminal. If it still isn't found, check that `~/.local/bin` is on your PATH
+(`echo $PATH`) and that `~/.local/bin/vault` exists. Re-run `~/.vault-cli/install.sh`.
+
+## An old `alias vault=…` in `~/.zshrc`
+
+The installer removes it (backup in `~/.zshrc.vault-backup`). If you added one by hand
+elsewhere, delete it; it shadows the new command.
+
+## My `.vault` folder keeps going "cloud-only"
+
+Pin it: Finder → right-click `.vault` → **Always Keep on This Device**. macOS has no
+scriptable way to do this. `vault doctor` reports whether it's pinned.
+
+## Something else
+
+`vault status` and `vault sessions --json` give the raw picture. Open an issue with their
+output.
