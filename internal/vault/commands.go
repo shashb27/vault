@@ -1063,7 +1063,11 @@ func cmdUpdate(args []string) error {
 	if err := copyFile(fresh, exe); err != nil {
 		return fail("could not replace %s: %v", exe, err)
 	}
-	ok("updated %s → %s", Version, strings.TrimSpace(string(newVer)))
+	nv := strings.TrimSpace(string(newVer))
+	if f := strings.Fields(nv); len(f) >= 2 {
+		nv = f[1]
+	}
+	ok("updated %s → %s", Version, nv)
 	return nil
 }
 

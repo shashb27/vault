@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0-beta.3 — 2026-09-19
+
+- `vault update` prints just the new version number. Verified end to end: install
+  one-liner on macOS in a C locale, `update` to a pinned tag and back, checksum matches
+  the release's SHA256SUMS.
+
 ## 0.3.0-beta.2 — 2026-09-19
 
 - Installers and `vault update` now pick the newest release **including pre-releases**;
