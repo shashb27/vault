@@ -53,7 +53,10 @@ STATE tells Sam what to expect:
 | `syncing` | the transcript on this Mac is incomplete; OneDrive is still delivering it |
 | `unknown` | no clean-exit marker — usually a session started with plain `claude` instead of `vault new`, or an exit that hasn't synced yet |
 
-## 4. Sam resumes
+## 4. Sam reads, then resumes
+
+Optional but recommended: `vault show planning-review` prints the last ten turns as
+plain text, so Sam knows where Alex stopped before entering.
 
 ```
 $ vault resume planning-review
@@ -87,6 +90,12 @@ for more than 15 minutes, vault treats it as finished and doesn't ask.
 If Alex really is still in it, `vault` shows `in use by alex` and `vault resume` refuses.
 `vault resume planning-review --steal` overrides that when you're certain Alex is done
 (crashed, forgot to exit).
+
+**If Claude hesitates.** Claude is told, when a session is resumed, that the vault's
+members share the whole conversation by agreement and that a change of driver is expected.
+In testing, without that note, Claude sometimes declined to repeat to the second person
+something the first person had framed as a secret. If it still hesitates, say who you are
+and that the vault is shared; that has been enough.
 
 ## 5. Sam exits, Alex continues
 

@@ -108,3 +108,53 @@ OneDrive): cross-machine propagation, dataless files, real conflict copies, leas
 The orchestrator also correctly noted claude-binary facts (torn-tolerance of bare
 resume, purge behavior, >200-char encoding) rest on Round-1/2 evidence, not re-verified
 by this fleet.
+
+---
+
+# Round 4 — v0.2 → v0.3: named sessions, guided flow, Go port (2026-09-19)
+
+**Method:** `tests/sim.sh` — two simulated users (alice, bob) whose `.vault` resolves to one
+store (two OneDrive replicas with zero latency), at a hostile path with spaces and parens,
+driving real `claude -p` calls (Claude Code 2.1.278, macOS). The same script runs against
+either implementation via `VAULT_BIN`.
+
+| Implementation | Checks | Result |
+|---|---|---|
+| `legacy/vault.sh` (bash, v0.2.1) | 65 | **65 pass, 0 fail** |
+| `dist/vault` (Go, v0.3.0-beta.1, darwin/arm64) | 65 | **65 pass, 0 fail** |
+| `go test ./...` (encoding incl. Windows paths, resolve, transcript parsing, leases, secrets, bypass flags) | 7 test funcs | pass |
+
+Covered: init+join self-test · named `new` · duplicate-name refusal · resume by name /
+case-insensitive prefix / id prefix, same file, bidirectional (LAST-BY updates) · rename,
+old name gone · torn-transcript refusal · per-session lease block / `--steal` / release ·
+marker-less non-tty refusal, own-session pass, idle-15-min pass · conflict quarantine +
+`conflicts show` · `--json` · bare `vault` · `status <name>` · `doctor` exit codes ·
+unnamed bare-claude session with first prompt, rename by id prefix · `vault claude`
+compat · bypass-permission flags and settings refused · `show` · members memory ·
+SIZE column and large warning · memory conflict copy · lease heartbeat · leave.
+
+Read-only commands (`vault`, `status`, `doctor`, `members`, `conflicts`, `archive list`)
+also run against the two live OneDrive vaults (Testing-vault, media_vault) with the Go
+binary: correct names/owners/states, real `fileproviderctl` state, exit codes as designed.
+
+## Findings during this round
+1. **Claude sometimes refused to repeat, to the second person, a "codeword" the first
+   person gave it** once the transcript's cwd showed a different user. Fixed by telling
+   Claude on resume that all members share the conversation by agreement and act as one
+   principal; 4/4 subsequent manual runs and the suite pass. The suite's transferred fact
+   is now phrased as team information rather than a secret, since the test is about
+   context transfer, not about overriding Claude's own judgment.
+2. **bash 3.2 (macOS default) cannot kill a sleeping child from a subshell trap**, so the
+   first lease-heartbeat implementation left `sleep 300` processes holding the caller's
+   pipe open. Rewritten with short sleep slices and stdio detached. Go uses a goroutine.
+3. On macOS `/dev/null` is a character device, so Go's mode-bit "is a terminal" check was
+   wrong; switched to `golang.org/x/term`.
+4. macOS `wc -l` pads output; the test compared strings. Test bug, fixed.
+
+## Not covered (honest limits)
+- **Windows: nothing has run on a real Windows machine.** Cross-compiled binaries exist;
+  the encoding of Windows paths, junction creation, OneDrive attributes and `attrib +P`
+  are implemented from documentation and must be checked with `tests/windows-checklist.md`.
+- Real OneDrive latency, dataless files and conflict races are exercised only by day-to-day
+  use of the two live vaults, not by the suite.
+- Two members on different Claude Code versions writing one transcript: untested.

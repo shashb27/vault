@@ -11,7 +11,7 @@
 | Claude's project memory (`.vault/sessions/memory/`) | **Yes** | Deliberate: a vault is a shared workspace. Keep personal facts out. |
 | `CLAUDE.md` at the vault root | **Yes** | Instructions Claude auto-loads, for every member |
 | `.claude/settings.json`, `.claude/settings.local.json` at the vault root | **Yes** | Permission rules Claude applies, for every member |
-| Your login / OAuth tokens | **No** | macOS Keychain, never in the folder |
+| Your login / OAuth tokens | **No** | macOS Keychain / Windows Credential Manager, never in the folder |
 | Your `~/.claude.json` (trust dialog answers, allowed tools, MCP enablement) | No | Per-person |
 | `/rewind` checkpoints, background tasks, prompt history | No | Per-person |
 
@@ -26,6 +26,8 @@ The verbatim output of every tool call. That includes:
 
 Rules of thumb: don't `cat` secrets in a vault session; keep personal connectors out of
 vault sessions; use `vault private` when you want Claude in this folder without sharing.
+After each run vault scans what you added for common key shapes and warns you to rotate;
+the scan is a safety net, not a guarantee.
 
 ## Members can steer your Claude
 
@@ -36,6 +38,9 @@ Mitigations built in:
 
 - `vault` warns whenever those files changed since your last run, and lists every
   pre-existing one the first time you join.
+- vault refuses to launch if the shared settings set `defaultMode: bypassPermissions`,
+  and refuses `--dangerously-skip-permissions` / `--permission-mode bypassPermissions`
+  inside a vault. Use `vault private` for that.
 - Never click "don't ask again" inside a vault. That grant is per-person, but it's the
   exact thing a poisoned `CLAUDE.md` would exploit.
 - Only vault with people you'd trust to run commands near you.

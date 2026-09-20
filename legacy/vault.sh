@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # vault — shared Claude Code sessions in a shared folder.
 #
+# LEGACY: this is the v0.2.1 bash implementation, kept as the behavioural reference
+# for the Go binary (cmd/vault). It is macOS-only and no longer installed by default.
+#
 # A vault is a folder (OneDrive for now) that owns Claude Code session state.
 # After a one-time `vault join`, Claude opened at the vault root reads and
 # writes a session pool that every member sees. Sessions have NAMES, so you
@@ -12,12 +15,14 @@
 #               the vault are shared and unauthenticated.
 set -euo pipefail
 
-VAULT_VERSION="0.2.0"
+VAULT_VERSION="0.2.1"
 VAULT_DIRNAME=".vault"
 LEASE_TTL_MINUTES=60
 UPLOAD_WAIT_SECS=45
 GATE_WAIT_SECS=90            # how long `vault resume` waits for sync before asking
 IDLE_OK_SECS=900             # marker-less session idle this long counts as finished
+LEASE_HEARTBEAT_SECS="${VAULT_LEASE_HEARTBEAT_SECS:-300}"   # lease refresh while Claude runs
+BIG_SESSION_BYTES="${VAULT_BIG_SESSION_BYTES:-5000000}"   # warn above this: slow to sync, heavy to resume
 SELF_USER="${VAULT_TEST_USER:-$(whoami)}"   # override is for tests/sim.sh only
 SELF_HOST="${VAULT_TEST_HOST:-$(hostname -s)}"
 STATE_DIR="$HOME/.claude/vault-local-state"   # per-user, never synced
@@ -47,7 +52,7 @@ hint() { echo "${D}  → next:${N} $*"; }
 
 vpy() {
   VAULT_ROOT="${VAULT_ROOT:-}" VAULT_DIR="${VAULT_DIR:-}" SESSIONS_DIR="${SESSIONS_DIR:-}" \
-  SELF_USER="$SELF_USER" SELF_HOST="$SELF_HOST" LEASE_TTL_MINUTES="$LEASE_TTL_MINUTES" \
+  SELF_USER="$SELF_USER" SELF_HOST="$SELF_HOST" LEASE_TTL_MINUTES="$LEASE_TTL_MINUTES" BIG_SESSION_BYTES="$BIG_SESSION_BYTES" \
   python3 - "$@" <<'PY'
 import json, sys, os, glob, re, time, datetime
 
@@ -220,6 +225,24 @@ def build_index():
     rows.sort(key=lambda e: -e["mtime"])
     return rows
 
+BIG = int(os.environ.get("BIG_SESSION_BYTES", "5000000"))
+def human_size(n):
+    if n < 1024: return f"{n}B"
+    if n < 1024*1024: return f"{n//1024}K"
+    return f"{n/1048576:.1f}M"
+
+def turns(path, last_n=None):
+    out = []
+    for raw in open(path, "rb"):
+        try: d = json.loads(raw)
+        except Exception: continue
+        if not isinstance(d, dict) or d.get("type") not in ("user", "assistant") or d.get("isMeta"): continue
+        if d.get("isCompactSummary"): out.append(("compact", text_of(d.get("message", {})).strip())); continue
+        txt = text_of(d.get("message", {})).strip()
+        if not txt or txt.startswith("<"): continue
+        out.append((d["type"], txt))
+    return out[-last_n:] if last_n else out
+
 def rel_time(ts):
     s = int(time.time() - ts)
     if s < 60: return "just now"
@@ -237,8 +260,9 @@ def print_table(rows, numbered=False, limit=None):
     w_own = max(10, max(len(e["owner"]) for e in shown))
     w_last = max(7, max(len(e["last_by"]) for e in shown))
     hdr = "   # " if numbered else ""
-    hdr += f'{"NAME":<{w_name}}  {"STATE":<{w_state}}  {"STARTED-BY":<{w_own}}  {"LAST-BY":<{w_last}}  {"LAST-ACTIVE":<11}  ID'
+    hdr += f'{"NAME":<{w_name}}  {"STATE":<{w_state}}  {"STARTED-BY":<{w_own}}  {"LAST-BY":<{w_last}}  {"LAST-ACTIVE":<11}  {"SIZE":>6}  ID'
     print(dim(hdr))
+    big = []
     for i, e in enumerate(shown, 1):
         nm = e["name"]
         nm_s = f"{nm[:w_name]:<{w_name}}" if nm else dim(f"{('(unnamed) ' + e['id'][:8])[:w_name]:<{w_name}}")
@@ -248,12 +272,17 @@ def print_table(rows, numbered=False, limit=None):
         elif stt == "syncing":       stt_s = yel(f"{stt:<{w_state}}")
         else:                        stt_s = dim(f"{stt:<{w_state}}")
         line = f"  {i:>2} " if numbered else ""
-        line += f'{nm_s}  {stt_s}  {e["owner"]:<{w_own}}  {e["last_by"]:<{w_last}}  {rel_time(e["mtime"]):<11}  {dim(e["id"][:8])}'
+        sz = human_size(e["size"])
+        sz_s = yel(f"{sz:>6}") if e["size"] > BIG else f"{sz:>6}"
+        if e["size"] > BIG: big.append(nm or e["id"][:8])
+        line += f'{nm_s}  {stt_s}  {e["owner"]:<{w_own}}  {e["last_by"]:<{w_last}}  {rel_time(e["mtime"]):<11}  {sz_s}  {dim(e["id"][:8])}'
         print(line)
         if not nm and e.get("first_prompt"):
             print(dim(f'{"":>{5 if numbered else 0}}   "{e["first_prompt"]}"'))
     if limit and len(rows) > limit:
         print(dim(f"  … {len(rows)-limit} more — run `vault sessions` for all"))
+    if big:
+        print(yel(f"  ! large session(s): {', '.join(big)} — slow to sync and heavy to resume. Run /compact inside Claude before handing off."))
 
 def resolve(arg, rows):
     """Return (sid, None) or (None, error message)."""
@@ -360,14 +389,33 @@ elif cmd == "conflicts-show":   # plain-text dump of the human/assistant turns i
     try: p = files[int(args[0]) - 1]
     except Exception: print("no such conflict number", file=sys.stderr); sys.exit(1)
     print(dim(f"# {os.path.basename(p)}"))
-    for raw in open(p, "rb"):
-        try: d = json.loads(raw)
-        except Exception: continue
-        if not isinstance(d, dict) or d.get("type") not in ("user", "assistant") or d.get("isMeta"): continue
-        txt = text_of(d.get("message", {})).strip()
-        if not txt or txt.startswith("<"): continue
-        who = grn("you>") if d["type"] == "user" else bold("claude>")
-        print(f"{who} {txt[:2000]}\n")
+    for who, txt in turns(p):
+        tag = grn("human>") if who == "user" else (dim("[compacted summary]") if who == "compact" else bold("claude>"))
+        print(f"{tag} {txt[:2000]}\n")
+elif cmd == "show":             # last N turns of a session, as text
+    sid, n = args[0], int(args[1])
+    for who, txt in turns(os.path.join(SDIR, sid + ".jsonl"), n):
+        tag = grn("human>") if who == "user" else (dim("[compacted summary]") if who == "compact" else bold("claude>"))
+        print(f"{tag} {txt[:3000]}\n")
+elif cmd == "members-memory":   # keep a shared memory file listing members, so Claude knows who may be driving
+    mem = os.path.join(SDIR, "memory"); os.makedirs(mem, exist_ok=True)
+    names = sorted({u.get("user","?") for u in users()})
+    body = ("---\nname: vault-members\ndescription: Who shares this vault; any of them may be the person typing in a resumed session\n"
+            "metadata:\n  type: project\n---\n\nThis folder is a shared team vault. Members: " + ", ".join(names) + ".\n"
+            "Any member may be driving a session, and the whole conversation is shared among all members by agreement, "
+            "so continue with whoever is driving using the full context. The wrapper states who is driving when a session is resumed.\n")
+    open(os.path.join(mem, "vault-members.md"), "w").write(body)
+    idx = os.path.join(mem, "MEMORY.md")
+    cur = open(idx).read() if os.path.exists(idx) else "# Memory Index\n"
+    if "vault-members.md" not in cur:
+        open(idx, "w").write(cur.rstrip("\n") + "\n- [Vault members](vault-members.md) — who shares this vault; any may be driving\n")
+elif cmd == "memory-conflicts": # OneDrive conflict copies inside the shared memory folder
+    mem = os.path.join(SDIR, "memory")
+    for p in sorted(glob.glob(os.path.join(mem, "*.md"))):
+        stem = os.path.basename(p)[:-3]
+        m = re.match(r"^(.+?)(?: \(\d+\)|-[A-Za-z0-9][A-Za-z0-9 ’']*)$", stem)
+        if m and os.path.exists(os.path.join(mem, m.group(1) + ".md")):
+            print(os.path.basename(p), m.group(1) + ".md")
 else:
     print(f"vpy: unknown command {cmd}", file=sys.stderr); sys.exit(1)
 PY
@@ -499,7 +547,38 @@ check_drift() {
   fi
 }
 
-preflight() { check_onedrive; quarantine_conflicts; check_drift; }
+check_memory_conflicts() {
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    warn "shared memory has a conflict copy: ${line% *} duplicates ${line#* } — two people's Claude wrote memory at once. Merge by hand in .vault/sessions/memory/."
+  done < <(vpy memory-conflicts)
+}
+
+# Bypass-permissions inside a vault = any member's CLAUDE.md can run anything on your Mac.
+check_bypass_flags() {
+  local a prev=""
+  for a in "$@"; do
+    if [[ "$a" == "--dangerously-skip-permissions" || ( "$prev" == "--permission-mode" && "$a" == "bypassPermissions" ) || "$a" == "--permission-mode=bypassPermissions" ]]; then
+      die "'$a' is not allowed inside a vault: the shared CLAUDE.md and settings here are editable by every member,
+  so bypassing permissions would let any member run anything on your machine. Use 'vault private' for that."
+    fi
+    prev="$a"
+  done
+}
+check_bypass_settings() {
+  local f
+  for f in "$VAULT_ROOT/.claude/settings.json" "$VAULT_ROOT/.claude/settings.local.json"; do
+    [[ -f "$f" ]] || continue
+    if grep -Eq '"defaultMode"[[:space:]]*:[[:space:]]*"bypassPermissions"' "$f"; then
+      die "refusing to start: ${f#"$VAULT_ROOT"/} sets defaultMode to bypassPermissions.
+  In a shared vault that means any member could make Claude run anything on your machine.
+  Remove that line (and ask who added it) before working here."
+    fi
+  done
+}
+
+preflight() { check_onedrive; quarantine_conflicts; check_drift; check_memory_conflicts; check_bypass_settings; }
 
 # ---------- leases (per session, advisory) ----------
 
@@ -584,16 +663,44 @@ finish_handoff() {   # $1 = start marker; marks every session THIS run touched a
   [[ "$touched" == "1" ]] || info "${D}(no shared session was changed in this run)${N}"
 }
 
+start_heartbeat() {   # refresh our lease while Claude runs, so long sessions never look free
+  local sid="$1" parent=$$
+  # No traps (bash 3.2 on macOS won't kill a sleeping child from one). Instead: short
+  # sleep slices, and exit as soon as the parent is gone or the lease isn't ours.
+  (
+    n=0; t=0; slice=2; (( LEASE_HEARTBEAT_SECS < slice )) && slice=$LEASE_HEARTBEAT_SECS
+    while kill -0 "$parent" 2>/dev/null; do
+      sleep "$slice"; t=$((t+slice))
+      (( t >= LEASE_HEARTBEAT_SECS )) || continue
+      t=0
+      [[ -f "$(lease_path "$sid")" ]] || exit 0
+      grep -q "\"pid\":$parent," "$(lease_path "$sid")" || exit 0
+      n=$((n+1))
+      printf '{"user":"%s","host":"%s","pid":%d,"session_id":"%s","acquired_at":"%s","ttl_minutes":%d,"heartbeats":%d}\n' \
+        "$SELF_USER" "$SELF_HOST" "$parent" "$sid" "$(now_iso)" "$LEASE_TTL_MINUTES" "$n" > "$VAULT_DIR/leases/.$sid.hb.$parent"
+      mv "$VAULT_DIR/leases/.$sid.hb.$parent" "$(lease_path "$sid")"
+    done
+  ) >/dev/null 2>&1 </dev/null &
+  HEARTBEAT_PID=$!
+}
+stop_heartbeat() {
+  if [[ -n "${HEARTBEAT_PID:-}" ]]; then kill "$HEARTBEAT_PID" 2>/dev/null || true; wait "$HEARTBEAT_PID" 2>/dev/null || true; fi
+  HEARTBEAT_PID=""; return 0
+}
+
 launch_claude() {   # $1 = session id (lease), rest = claude args. Handles lease/marker lifecycle.
   local sid="$1"; shift
+  check_bypass_flags "$@"
   acquire_lease "$sid"
-  trap 'release_lease' EXIT INT TERM
+  start_heartbeat "$sid"
+  trap 'stop_heartbeat; release_lease' EXIT INT TERM
   local start_marker="$VAULT_DIR/.run-start.$$"
   touch "$start_marker"
   rm -f "$VAULT_DIR/handoff/$sid.done"     # live again — the old clean-exit marker is no longer true
   local rc=0
   ( cd "$VAULT_ROOT" && claude "$@" ) || rc=$?
   echo
+  stop_heartbeat
   finish_handoff "$start_marker"
   rm -f "$start_marker"
   release_lease
@@ -602,7 +709,7 @@ launch_claude() {   # $1 = session id (lease), rest = claude args. Handles lease
 }
 
 reorient_prompt() {
-  printf '%s' "This session lives in a shared vault and may have moved between machines and people. The vault root on THIS machine is: $VAULT_ROOT — re-resolve any absolute file paths from earlier in the conversation relative to this root before using them. The person now driving is $SELF_USER (may differ from earlier turns)."
+  printf '%s' "This session lives in a shared team vault ('$VAULT_NAME'). All members of the vault are co-owners of this session and act as one principal: every member has agreed that the entire conversation, including everything said or produced in earlier turns, is shared among all members, and a different member taking over the keyboard is expected and authorized by all of them. There is no per-person confidentiality inside a vault session; do not withhold earlier content from the current driver on the grounds that another member provided it. The member now driving is $SELF_USER; earlier turns may have been driven by other members. Continue the work with them exactly as you would with the original person, using the full context. The vault root on THIS machine is: $VAULT_ROOT — re-resolve any absolute file paths from earlier in the conversation relative to this root before using them."
 }
 
 # ---------- commands ----------
@@ -658,6 +765,7 @@ cmd_join() {
   fi
   ln -s "$SESSIONS_DIR" "$LINK_PATH"
   vpy users-add
+  vpy members-memory
   registry_add
 
   # Empirical self-test: Claude's path encoding is undocumented and version-specific.
@@ -900,7 +1008,7 @@ cmd_status() {
   quarantine_conflicts
   local n; n="$(conflict_count)"
   if [[ "$n" == "0" ]]; then echo "${B}Conflicts${N}  none"; else echo "${B}Conflicts${N}  ${Y}$n quarantined${N} — see 'vault conflicts'"; fi
-  check_drift
+  check_drift; check_memory_conflicts
   if [[ -n "$target" ]]; then
     local sid; sid="$(vpy resolve "$target")" || exit 1
     local f="$SESSIONS_DIR/$sid.jsonl" nm; nm="$(vpy name-of "$sid")"
@@ -916,6 +1024,20 @@ cmd_status() {
     if [[ "$complete" == "1" && "$handed" == "1" ]]; then hint "vault resume \"${nm:-$sid}\"     — safe to continue"
     else hint "vault resume \"${nm:-$sid}\"     — it will wait for sync and ask before proceeding"; fi
   fi
+}
+
+cmd_show() {
+  require_vault
+  local target="${1:-}" n="${2:-10}"
+  [[ -n "$target" ]] || die "usage: vault show <name> [turns]   — read the last turns before you resume"
+  local sid; sid="$(vpy resolve "$target")" || exit 1
+  local nm; nm="$(vpy name-of "$sid")"
+  local f="$SESSIONS_DIR/$sid.jsonl"
+  if is_cloud_path "$f"; then cat "$f" >/dev/null 2>&1 || true; fi
+  echo "${B}${nm:-${sid:0:8}}${N}  ${D}last $n turns · started by $(vpy list --json | python3 -c 'import json,sys; sid=sys.argv[1]; print(next((e["owner"] for e in json.load(sys.stdin) if e["id"]==sid),"?"))' "$sid")${N}"
+  echo
+  vpy show "$sid" "$n"
+  hint "vault resume \"${nm:-$sid}\""
 }
 
 cmd_conflicts() {
@@ -988,6 +1110,7 @@ cmd_leave() {
   local latest; latest="$(ls -1dt "$BACKUP_DIR/$ENC."* 2>/dev/null | head -1 || true)"
   if [[ -n "$latest" ]]; then mv "$latest" "$LINK_PATH"; info "restored your pre-join private sessions from $latest"; fi
   vpy users-remove 2>/dev/null || true
+  vpy members-memory 2>/dev/null || true
   registry_remove
   ok "left ${B}$VAULT_NAME${N}. Claude in this folder is private again."
   warn "leaving does not un-share: sessions you ran while joined stay in the vault, on teammates' Macs and in OneDrive history."
@@ -1056,6 +1179,7 @@ ${B}Everyday${N}
   vault resume [<name>]      continue a session (waits for sync, checks nobody is in it)
   vault sessions             list sessions: name, state, who started, who last touched
   vault rename <old> <new>   give a session a better name
+  vault show <name> [N]      read the last N turns before you jump in
 
 ${B}Setup (once)${N}
   vault init [name]          make the current folder a vault, and join it
@@ -1090,6 +1214,7 @@ case "${1:-}" in
   rename)        shift; cmd_rename "$@" ;;
   status)        shift; cmd_status "$@" ;;
   conflicts)     shift; cmd_conflicts "$@" ;;
+  show|log)      shift; cmd_show "$@" ;;
   doctor)        shift; cmd_doctor "$@" ;;
   private)       shift; cmd_private "$@" ;;
   leave)         shift; cmd_leave "$@" ;;

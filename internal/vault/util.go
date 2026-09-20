@@ -1,0 +1,5 @@
+package vault
+
+import "regexp"
+
+func regexpMust(s string) *regexp.Regexp { return regexp.MustCompile(s) }

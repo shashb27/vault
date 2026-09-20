@@ -71,6 +71,31 @@ Claude on your Mac. Skim them before working. See [safety.md](safety.md).
 Trust and permission grants are per-person, by design. Grant them yourself. Never
 "don't ask again" inside a vault.
 
+## "refusing to start: … sets defaultMode to bypassPermissions"
+
+Someone put `"defaultMode": "bypassPermissions"` in the vault's shared `.claude/settings`.
+In a shared folder that would let any member make Claude run anything on your machine
+without asking. Remove the line, and ask who added it. The same reason vault refuses
+`--dangerously-skip-permissions`; use `vault private` if you need that for yourself.
+
+## "what was just shared looks like it contains a secret"
+
+The bytes you added to the transcript match a common key shape (AWS, Anthropic, GitHub,
+Slack, Google, private key). Everyone in the vault can read it; rotate it if it's real.
+The scan is pattern-based and warn-only.
+
+## Windows: `vault join` fails to create the link
+
+vault uses a directory junction (`mklink /J`), which needs no admin rights. If it fails,
+run the command it prints by hand and send the error in an issue. Do not use WSL for the
+vault: OneDrive lives in the Windows filesystem.
+
+## Windows: sessions from this machine don't appear for teammates
+
+Run `vault encode` in the vault folder and compare with the newest folder under
+`%USERPROFILE%\.claude\projects` after a plain `claude -p "hi"` there. They must match
+exactly. If they don't, open an issue with both strings; see `tests/windows-checklist.md`.
+
 ## `vault` isn't found after install
 
 Open a new terminal. If it still isn't found, check that `~/.local/bin` is on your PATH
@@ -81,10 +106,17 @@ Open a new terminal. If it still isn't found, check that `~/.local/bin` is on yo
 The installer removes it (backup in `~/.zshrc.vault-backup`). If you added one by hand
 elsewhere, delete it; it shadows the new command.
 
+## `vault update` says it needs gh
+
+The repo is private, so downloads go through the GitHub CLI. Install it
+(https://cli.github.com) and run `gh auth login` once.
+
 ## My `.vault` folder keeps going "cloud-only"
 
-Pin it: Finder → right-click `.vault` → **Always Keep on This Device**. macOS has no
-scriptable way to do this. `vault doctor` reports whether it's pinned.
+macOS: pin it in Finder → right-click `.vault` → **Always Keep on This Device**; macOS has
+no scriptable way to do this. Windows: `vault join` pins it with `attrib +P`; if it came
+unpinned, run `attrib +P .vault /S /D` in the vault folder. `vault doctor` reports whether
+it's pinned.
 
 ## Something else
 

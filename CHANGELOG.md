@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-09-19
+
+**One binary, every platform.** vault is now a single Go executable for macOS, Windows
+and Linux (no bash, python or node needed). Behaviour is identical to 0.2.1: the same
+65-check simulation passes against both implementations. `.vault/` layout unchanged.
+
+- **Windows support** (native, not WSL): junction instead of symlink (no admin needed),
+  OneDrive sync state from file attributes, automatic pinning of `.vault` with `attrib +P`,
+  ANSI colours enabled in the console. **Not yet verified on a real Windows machine** —
+  see `tests/windows-checklist.md`.
+- Installers: `install.sh` (macOS/Linux) and `install.ps1` (Windows) download the right
+  binary from the latest GitHub release via `gh`. `vault update` replaces itself the same way.
+- GitHub Actions builds and attaches binaries on every `v*` tag.
+- `vault show <name> [N]`: read the last N turns as text before resuming.
+- `vault archive <name>` / `vault restore <name>`: keep the list short without deleting.
+- `vault members`.
+- **Secrets scan**: after each run, the bytes you added to a shared transcript are checked
+  for common key shapes (AWS, Anthropic, OpenAI, GitHub, Slack, Google, private key blocks)
+  and you're warned to rotate.
+- **Lockdown**: `--dangerously-skip-permissions` and `--permission-mode bypassPermissions`
+  are refused inside a vault; vault refuses to launch if the shared `.claude/settings*.json`
+  sets `defaultMode: bypassPermissions`. `vault doctor` checks this too.
+- Lease heartbeat: your lease is refreshed while Claude runs, so long sessions never look free.
+- Shared memory conflict copies are detected again (regression from 0.2.0).
+- Shared memory lists the members; the resume prompt states that vault content is shared
+  among members by agreement. Without this Claude sometimes refused to repeat, to the second
+  person, something the first person had told it (seen in testing).
+- `vault sessions` shows a SIZE column and warns above 5 MB (slow to sync, heavy to resume).
+- Unit tests for encoding (incl. Windows paths), name resolution, transcript parsing,
+  leases, secret patterns.
+- `legacy/vault.sh` is the 0.2.1 bash implementation, kept as the reference.
+
+## 0.2.1 — 2026-09-19 (bash, not released separately)
+
+Lease heartbeat, memory conflict check, bypass-permissions block, `vault show`, members in
+shared memory, SIZE column. Folded into 0.3.0-beta.1.
+
 ## 0.2.0 — 2026-09-19
 
 First version meant for people other than the author. Same `.vault/` layout as 0.1, so
