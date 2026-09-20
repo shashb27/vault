@@ -2,7 +2,7 @@
 # vault installer for macOS and Linux.
 #
 #   gh auth status                      # the repo is private: you need the GitHub CLI logged in
-#   curl -fsSL https://raw.githubusercontent.com/shashb27/vault/main/install.sh | bash
+#   gh api repos/shashb27/vault/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
 #   # or, from a checkout:  ./install.sh
 #
 # What it does: downloads the vault binary for this machine from the latest GitHub
@@ -33,10 +33,11 @@ if [[ -n "${VAULT_LOCAL:-}" ]]; then
 else
   command -v gh >/dev/null || die "the GitHub CLI (gh) is required because the repo is private: https://cli.github.com then 'gh auth login'"
   gh auth status >/dev/null 2>&1 || die "run 'gh auth login' first (the repo is private)."
-  args=(release download -R "$REPO" -p "$asset" -D "$tmp" --clobber)
-  [[ -n "${VAULT_VERSION:-}" ]] && args+=("$VAULT_VERSION")
-  echo "  downloading $asset from $REPO ${VAULT_VERSION:-(latest release)}…"
-  gh "${args[@]}" || die "download failed. Do you have access to https://github.com/$REPO ? Ask Shash."
+  # newest release INCLUDING pre-releases (gh's "latest" skips betas)
+  tag="${VAULT_VERSION:-$(gh release list -R "$REPO" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)}"
+  [[ -n "$tag" ]] || die "no release found at https://github.com/$REPO — do you have access? Ask Shash."
+  echo "  downloading $asset from $REPO $tag…"
+  gh release download "$tag" -R "$REPO" -p "$asset" -D "$tmp" --clobber || die "download failed. Do you have access to https://github.com/$REPO ? Ask Shash."
 fi
 chmod +x "$tmp/$asset"
 if [[ -e "$BIN/vault" && -L "$BIN/vault" ]]; then rm "$BIN/vault"; fi   # old symlink-style install

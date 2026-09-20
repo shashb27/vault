@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-beta.2 — 2026-09-19
+
+- Installers and `vault update` now pick the newest release **including pre-releases**;
+  beta.1 looked for a stable "latest" release, which does not exist yet, and failed.
+- Install one-liners use `gh api … --raw`, since raw GitHub URLs on a private repo return 404.
+- Installers are attached to each release.
+
 ## 0.3.0-beta.1 — 2026-09-19
 
 **One binary, every platform.** vault is now a single Go executable for macOS, Windows

@@ -1029,11 +1029,22 @@ func cmdUpdate(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	ghArgs := []string{"release", "download", "-R", repoSlug, "-p", assetName(), "-D", tmp, "--clobber"}
+	tag := ""
 	if len(args) > 0 && args[0] != "" {
-		ghArgs = append(ghArgs, args[0]) // explicit tag
+		tag = args[0] // explicit tag
+	} else { // newest release INCLUDING pre-releases (gh's "latest" skips betas)
+		outb, err := exec.Command("gh", "release", "list", "-R", repoSlug, "--limit", "1", "--json", "tagName", "--jq", ".[0].tagName").Output()
+		tag = strings.TrimSpace(string(outb))
+		if err != nil || tag == "" {
+			return fail("could not find a release at https://github.com/%s (is gh logged in, do you have access?)", repoSlug)
+		}
 	}
-	fmt.Print("  downloading the latest release…")
+	if tag == "v"+Version || tag == Version {
+		ok("already on %s", tag)
+		return nil
+	}
+	ghArgs := []string{"release", "download", tag, "-R", repoSlug, "-p", assetName(), "-D", tmp, "--clobber"}
+	fmt.Printf("  downloading %s…", tag)
 	if outb, err := exec.Command("gh", ghArgs...).CombinedOutput(); err != nil {
 		fmt.Println()
 		return fail("download failed: %s", strings.TrimSpace(string(outb)))

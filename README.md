@@ -32,14 +32,16 @@ logged in (`gh auth status`), because the repo is private.
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shashb27/vault/main/install.sh | bash
+gh api repos/shashb27/vault/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
 ```
 
 **Windows** (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/shashb27/vault/main/install.ps1 | iex
+gh api repos/shashb27/vault/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
 ```
+
+(The repo is private, so plain `curl` to a raw URL gets a 404; `gh api` uses your login.)
 
 Open a new terminal, then:
 
@@ -89,7 +91,7 @@ Find yours, follow the arrows. Every box is a real command or something you'll s
 
 ```mermaid
 flowchart TD
-    A(["New machine"]) --> B["macOS/Linux: curl … install.sh | bash<br/>Windows: irm … install.ps1 | iex"]
+    A(["New machine"]) --> B["gh auth login, then the one-line install<br/>from the README (macOS/Linux or Windows)"]
     B --> C["open a new terminal<br/>vault doctor"]
     C --> D{"all ✓ except<br/>'inside a vault folder'?"}
     D -- no --> E["follow the fix printed<br/>under each ✗"] --> C

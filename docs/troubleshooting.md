@@ -99,7 +99,7 @@ exactly. If they don't, open an issue with both strings; see `tests/windows-chec
 ## `vault` isn't found after install
 
 Open a new terminal. If it still isn't found, check that `~/.local/bin` is on your PATH
-(`echo $PATH`) and that `~/.local/bin/vault` exists. Re-run `~/.vault-cli/install.sh`.
+(`echo $PATH`) and that `~/.local/bin/vault` exists. Re-run the install one-liner from the README.
 
 ## An old `alias vault=…` in `~/.zshrc`
 

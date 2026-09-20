@@ -31,4 +31,4 @@ jobs:
             /^## / { if (on) exit }
             on { print }' CHANGELOG.md)"
           [ -n "$notes" ] || notes="See CHANGELOG.md"
-          gh release create "$tag" dist/vault-* dist/SHA256SUMS --title "vault $tag" --notes "$notes" $pre
+          gh release create "$tag" dist/vault-* dist/SHA256SUMS install.sh install.ps1 --title "vault $tag" --notes "$notes" $pre

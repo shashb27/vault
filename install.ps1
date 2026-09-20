@@ -1,7 +1,7 @@
 # vault installer for Windows (PowerShell 5.1 or 7).
 #
 #   gh auth status        # the repo is private: you need the GitHub CLI logged in
-#   irm https://raw.githubusercontent.com/shashb27/vault/main/install.ps1 | iex
+#   gh api repos/shashb27/vault/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
 #   # or, from a checkout:  .\install.ps1
 #
 # What it does: downloads vault-windows-<arch>.exe from the latest GitHub release
@@ -29,10 +29,11 @@ if ($env:VAULT_LOCAL) {
 } else {
   if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Die "the GitHub CLI (gh) is required because the repo is private: winget install GitHub.cli, then 'gh auth login'" }
   gh auth status *> $null; if ($LASTEXITCODE -ne 0) { Die "run 'gh auth login' first (the repo is private)." }
-  $ghArgs = @("release", "download", "-R", $Repo, "-p", $Asset, "-D", $tmp, "--clobber")
-  if ($env:VAULT_VERSION) { $ghArgs += $env:VAULT_VERSION }
-  Write-Host "  downloading $Asset from $Repo $(if ($env:VAULT_VERSION) { $env:VAULT_VERSION } else { '(latest release)' })..."
-  & gh @ghArgs; if ($LASTEXITCODE -ne 0) { Die "download failed. Do you have access to https://github.com/$Repo ? Ask Shash." }
+  # newest release INCLUDING pre-releases (gh's "latest" skips betas)
+  $tag = if ($env:VAULT_VERSION) { $env:VAULT_VERSION } else { (gh release list -R $Repo --limit 1 --json tagName --jq '.[0].tagName') }
+  if (-not $tag) { Die "no release found at https://github.com/$Repo - do you have access? Ask Shash." }
+  Write-Host "  downloading $Asset from $Repo $tag..."
+  & gh release download $tag -R $Repo -p $Asset -D $tmp --clobber; if ($LASTEXITCODE -ne 0) { Die "download failed. Do you have access to https://github.com/$Repo ? Ask Shash." }
 }
 
 $target = Join-Path $Dir "vault.exe"
