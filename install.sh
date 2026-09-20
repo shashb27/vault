@@ -36,7 +36,7 @@ else
   # newest release INCLUDING pre-releases (gh's "latest" skips betas)
   tag="${VAULT_VERSION:-$(gh release list -R "$REPO" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)}"
   [[ -n "$tag" ]] || die "no release found at https://github.com/$REPO — do you have access? Ask Shash."
-  echo "  downloading $asset from $REPO $tag…"
+  echo "  downloading $asset from $REPO ${tag}…"
   gh release download "$tag" -R "$REPO" -p "$asset" -D "$tmp" --clobber || die "download failed. Do you have access to https://github.com/$REPO ? Ask Shash."
 fi
 chmod +x "$tmp/$asset"
