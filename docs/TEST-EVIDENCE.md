@@ -158,3 +158,16 @@ binary: correct names/owners/states, real `fileproviderctl` state, exit codes as
 - Real OneDrive latency, dataless files and conflict races are exercised only by day-to-day
   use of the two live vaults, not by the suite.
 - Two members on different Claude Code versions writing one transcript: untested.
+
+## Release pipeline and install, end to end (2026-09-19, macOS)
+- Tag push → GitHub Actions: `go vet`, `go test`, cross-compile 6 targets, pre-release with
+  binaries, SHA256SUMS and both installers attached. Green for beta.1, beta.2, beta.3.
+- Install one-liner `gh api …/contents/install.sh --raw | bash` in a **C locale** (bash 3.2):
+  downloads the darwin/arm64 asset of the newest pre-release, installs to `~/.local/bin`.
+- `vault update`: "already on" when current; `vault update <tag>` downgrades (binary
+  replacement works); plain `vault update` upgrades beta.2 → beta.3. Installed binary's
+  SHA-256 matches the release's SHA256SUMS.
+- Bugs found and fixed on the way: `gh release download` without a tag ignores
+  pre-releases (beta.1 installer/update failed); raw.githubusercontent.com returns 404 on
+  a private repo (README now uses `gh api`); bash 3.2 read `$tag…` as one variable name
+  in a C locale.
