@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — 2026-09-21
+
+First cross-platform release: one Go binary for macOS, Windows and Linux, named sessions,
+guided flow, controls, installers and self-update. Everything from 0.3.0-beta.1 to beta.3
+below. Windows is built and unit-tested but not yet verified on a real Windows machine
+(`tests/windows-checklist.md`).
+
 ## 0.3.0-beta.3 — 2026-09-19
 
 - `vault update` prints just the new version number. Verified end to end: install
