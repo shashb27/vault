@@ -2,7 +2,7 @@
 # vault installer for macOS and Linux.
 #
 #   gh auth status                      # the repo is private: you need the GitHub CLI logged in
-#   gh api repos/shashb27/vault/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
+#   gh release download -R shashb27/vault -p install.sh -O - | bash
 #   # or, from a checkout:  ./install.sh
 #
 # What it does: downloads the vault binary for this machine from the latest GitHub

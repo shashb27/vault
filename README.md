@@ -32,16 +32,16 @@ logged in (`gh auth status`), because the repo is private.
 **macOS / Linux**
 
 ```bash
-gh api repos/shashb27/vault/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
+gh release download -R shashb27/vault -p install.sh -O - | bash
 ```
 
 **Windows** (PowerShell)
 
 ```powershell
-gh api repos/shashb27/vault/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
+gh release download -R shashb27/vault -p install.ps1; .\install.ps1
 ```
 
-(The repo is private, so plain `curl` to a raw URL gets a 404; `gh api` uses your login.)
+(The repo is private, so the installer comes from the release through your `gh` login.)
 
 Open a new terminal, then:
 

@@ -1,7 +1,7 @@
 # vault installer for Windows (PowerShell 5.1 or 7).
 #
 #   gh auth status        # the repo is private: you need the GitHub CLI logged in
-#   gh api repos/shashb27/vault/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
+#   gh release download -R shashb27/vault -p install.ps1; .\install.ps1
 #   # or, from a checkout:  .\install.ps1
 #
 # What it does: downloads vault-windows-<arch>.exe from the latest GitHub release
