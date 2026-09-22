@@ -103,8 +103,9 @@ func requireVault() (*Vault, error) {
 			}
 		}
 	} else {
-		sb.WriteString("\n  To make a shared folder a vault:   cd <shared OneDrive folder> && vault init")
-		sb.WriteString("\n  To join one a teammate made:       cd <that folder> && vault join")
+		sb.WriteString("\n  A vault is a folder that OneDrive syncs to everyone's machine (" + oneDriveHint() + ").")
+		sb.WriteString("\n  1. Pick or create such a folder that your teammates also sync, and cd into it.")
+		sb.WriteString("\n  2. First person there:   vault init      Everyone else:   vault join")
 	}
 	return nil, errors.New(sb.String())
 }
@@ -138,8 +139,13 @@ func cmdHome() error {
 			hint("cd into one of them, then run 'vault' again")
 		} else {
 			out("")
-			out("  Create one:   cd <a shared OneDrive folder>   &&  vault init")
-			out("  Join one:     cd <the folder a teammate made>  &&  vault join")
+			out("A vault is a folder that OneDrive syncs to everyone's machine.")
+			out("  1. Pick or create such a folder that your teammates also sync — a dedicated one, e.g. 'claude-vault'.")
+			out("     On this machine OneDrive folders live under %s.", oneDriveHint())
+			out("     No shared folder yet? Create it in a Teams channel's Files tab (then Sync), or in your")
+			out("     OneDrive and Share it; teammates add it to their OneDrive so it syncs to them too.")
+			out("  2. cd into it and check both of you see it there.")
+			out("  3. First person:   vault init        Everyone else:   vault join")
 			out("")
 			out(dim("  'vault help' lists every command. 'vault doctor' checks your setup."))
 		}

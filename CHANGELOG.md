@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-09-22
+
+- Docs and the bare `vault` message now start at step 0: how to get a shared OneDrive
+  folder that both machines sync, before `init`/`join`. Shorter install one-liners.
+
 ## 0.3.0 — 2026-09-21
 
 First cross-platform release: one Go binary for macOS, Windows and Linux, named sessions,

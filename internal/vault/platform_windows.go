@@ -152,3 +152,10 @@ func enableColor() {
 func cloudSetupHint(vaultDir string) string {
 	return "vault pins '" + filepath.Base(vaultDir) + "' with attrib +P so OneDrive keeps it on this device"
 }
+
+func oneDriveHint() string {
+	if r := cloudRoots(); len(r) > 0 {
+		return r[0]
+	}
+	return `C:\Users\<you>\OneDrive - <Your Org>\`
+}

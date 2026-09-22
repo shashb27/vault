@@ -52,10 +52,40 @@ vault doctor
 Every line should be a ✓ except "inside a vault folder", which you fix next.
 Later, `vault update` installs the newest release.
 
+## Step 0: the shared folder (one person, once)
+
+A vault is just a folder that OneDrive syncs to everyone's machine. You need that folder
+before anything else. Two questions decide what to do:
+
+**Do you already have one?** A folder that both of you can see inside your OneDrive
+folder on your own machines:
+
+- macOS: `~/Library/CloudStorage/OneDrive-<YourOrg>/` (Finder → OneDrive in the sidebar)
+- Windows: `C:\Users\<you>\OneDrive - <Your Org>\` (Explorer → OneDrive)
+
+If the same folder name shows up on both machines, you have one. Skip to "Start using it".
+
+**If not, create one.** Either of the standard OneDrive ways works; menu wording can differ
+slightly in your tenant:
+
+- **From a Teams channel or SharePoint site the team already uses.** Open the channel's
+  Files tab, create a folder (for example `claude-vault`), then click **Sync** or
+  **Add shortcut to OneDrive**. Everyone else on the team does the same click. The folder
+  then appears inside each person's OneDrive folder on their machine.
+- **From your own OneDrive.** Create a folder in OneDrive, **Share** it with your teammates
+  with edit access. Each teammate opens the link in OneDrive on the web and clicks
+  **Add shortcut to My files**, so it syncs to their machine too.
+
+Then each person checks the folder is really there in Finder or Explorer, with a green tick.
+The vault does nothing until OneDrive has that folder on both machines.
+
+**Which folder.** Use a dedicated folder for the vault (like `Testing-vault`), not a big
+existing one: everything Claude does there is shared, and the vault's hidden `.vault/`
+folder lives inside it.
+
 ## Start using it (5 minutes)
 
-**If your team already has a vault** (a teammate made one), go to the folder you both
-see in OneDrive and join:
+You are in the folder from Step 0. **If a teammate already ran `vault init` there**, join:
 
 ```bash
 cd ~/Library/CloudStorage/OneDrive-…/TheSharedFolder      # macOS
@@ -63,8 +93,7 @@ cd "$env:OneDriveCommercial\TheSharedFolder"                # Windows
 vault join
 ```
 
-**If you are the first person**, pick a folder in a SharePoint/OneDrive library that
-your teammates also sync, and:
+**If you are the first person**, make it a vault:
 
 ```bash
 vault init
@@ -93,7 +122,8 @@ two people and timing), and a lookup table for everything the tool prints.
 
 1. `gh auth login` if you haven't, then the one-line install above. Open a new terminal.
 2. `vault doctor` — fix anything with a ✗ (it prints the fix under each).
-3. `cd` into the shared OneDrive folder your team uses (the one you see in Finder or Explorer).
+3. Make sure the team's shared folder is on your machine (Step 0 above). If the team has
+   none yet, create it there first. Then `cd` into it.
 4. Run `vault`. It says either **"not joined"** → run `vault join`, or **"not inside a vault"** → you're first, run `vault init`.
 5. macOS only: in Finder, right-click the hidden `.vault` folder → **Always Keep on This Device**. Windows does this for you.
 6. From now on, `vault` tells you what's there and what to do next.

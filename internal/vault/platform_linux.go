@@ -43,3 +43,7 @@ func enableColor() {}
 func cloudSetupHint(string) string {
 	return "make sure whatever syncs this folder keeps it fully downloaded"
 }
+
+func oneDriveHint() string {
+	return "wherever your sync client puts them (no first-party OneDrive on Linux)"
+}

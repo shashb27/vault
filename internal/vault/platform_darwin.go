@@ -93,3 +93,5 @@ func enableColor() {}
 func cloudSetupHint(vaultDir string) string {
 	return "in Finder, right-click the '" + filepath.Base(vaultDir) + "' folder here and choose Always Keep on This Device (Cmd+Shift+. shows hidden folders)"
 }
+
+func oneDriveHint() string { return "~/Library/CloudStorage/OneDrive-<YourOrg>/" }
