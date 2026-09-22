@@ -64,6 +64,20 @@ esac
 
 command -v claude >/dev/null 2>&1 || warn "Claude Code is not installed — install it, run 'claude' once to log in, then come back."
 
+# another program called 'vault' (HashiCorp Vault, an old alias) would answer instead of ours
+resolved="$(command -v vault 2>/dev/null || true)"
+if [[ -n "$resolved" && "$resolved" != "$BIN/vault" ]]; then
+  warn "another 'vault' is first in this shell: $resolved"
+  warn "'vault doctor' would say 'unknown command'. Fix one of these ways:"
+  warn "  - put ~/.local/bin before it in PATH (edit $rc so the export PATH line comes last), or"
+  warn "  - keep both: ln -s $BIN/vault $BIN/cvault   and use 'cvault' for this tool"
+fi
+for f in "$HOME/.zprofile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile"; do
+  if grep -qsE '^\s*alias vault=' "$f"; then
+    warn "an old 'alias vault=' line in $f will shadow the new command — delete it and open a new terminal"
+  fi
+done
+
 echo
 "$BIN/vault" version
 echo

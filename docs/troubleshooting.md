@@ -96,6 +96,14 @@ Run `vault encode` in the vault folder and compare with the newest folder under
 `%USERPROFILE%\.claude\projects` after a plain `claude -p "hi"` there. They must match
 exactly. If they don't, open an issue with both strings; see `tests/windows-checklist.md`.
 
+## `vault doctor` says "unknown command" but `vault help` works
+
+A different program called `vault` is answering: usually **HashiCorp Vault** installed
+with Homebrew, or the **old POC alias** (`alias vault=…/vault.sh`) in a shell rc file.
+Run `type -a vault; vault version`. Ours prints `vault 0.3.x (…)`. Then either delete the
+alias, put `~/.local/bin` first in PATH, or keep both by using a second name:
+`ln -s ~/.local/bin/vault ~/.local/bin/cvault` and run `cvault`.
+
 ## `vault` isn't found after install
 
 Open a new terminal. If it still isn't found, check that `~/.local/bin` is on your PATH
