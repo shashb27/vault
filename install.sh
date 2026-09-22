@@ -72,9 +72,13 @@ if [[ -n "$resolved" && "$resolved" != "$BIN/vault" ]]; then
   warn "  - put ~/.local/bin before it in PATH (edit $rc so the export PATH line comes last), or"
   warn "  - keep both: ln -s $BIN/vault $BIN/cvault   and use 'cvault' for this tool"
 fi
-for f in "$HOME/.zprofile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile"; do
+for f in "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile"; do
   if grep -qsE '^\s*alias vault=' "$f"; then
     warn "an old 'alias vault=' line in $f will shadow the new command — delete it and open a new terminal"
+  fi
+  if grep -qsE '^\s*(function\s+vault\b|vault\s*\(\))' "$f"; then
+    warn "a shell FUNCTION named vault is defined in $f (line $(grep -nE '^\s*(function\s+vault\b|vault\s*\(\))' "$f" | head -1 | cut -d: -f1))."
+    warn "functions win over PATH, so 'vault doctor' would say 'unknown command'. Delete that block, open a new terminal."
   fi
 done
 
