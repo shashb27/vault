@@ -1,7 +1,6 @@
 # vault installer for Windows (PowerShell 5.1 or 7).
 #
-#   gh auth status        # the repo is private: you need the GitHub CLI logged in
-#   gh release download -R shashb27/vault -p install.ps1; .\install.ps1
+#   irm https://github.com/shashb27/vault/releases/latest/download/install.ps1 | iex
 #   # or, from a checkout:  .\install.ps1
 #
 # What it does: downloads vault-windows-<arch>.exe from the latest GitHub release
@@ -27,13 +26,14 @@ New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 if ($env:VAULT_LOCAL) {
   Copy-Item $env:VAULT_LOCAL (Join-Path $tmp $Asset)
 } else {
-  if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Die "the GitHub CLI (gh) is required because the repo is private: winget install GitHub.cli, then 'gh auth login'" }
-  gh auth status *> $null; if ($LASTEXITCODE -ne 0) { Die "run 'gh auth login' first (the repo is private)." }
-  # newest release INCLUDING pre-releases (gh's "latest" skips betas)
-  $tag = if ($env:VAULT_VERSION) { $env:VAULT_VERSION } else { (gh release list -R $Repo --limit 1 --json tagName --jq '.[0].tagName') }
-  if (-not $tag) { Die "no release found at https://github.com/$Repo - do you have access? Ask Shash." }
-  Write-Host "  downloading $Asset from $Repo $tag..."
-  & gh release download $tag -R $Repo -p $Asset -D $tmp --clobber; if ($LASTEXITCODE -ne 0) { Die "download failed. Do you have access to https://github.com/$Repo ? Ask Shash." }
+  $url = if ($env:VAULT_VERSION) { "https://github.com/$Repo/releases/download/$($env:VAULT_VERSION)/$Asset" } else { "https://github.com/$Repo/releases/latest/download/$Asset" }
+  Write-Host "  downloading $Asset $(if ($env:VAULT_VERSION) { $env:VAULT_VERSION } else { '(latest release)' })..."
+  try { Invoke-WebRequest -Uri $url -OutFile (Join-Path $tmp $Asset) -UseBasicParsing }
+  catch {
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Die "download failed from $url" }
+    $tag = if ($env:VAULT_VERSION) { $env:VAULT_VERSION } else { (gh release list -R $Repo --limit 1 --json tagName --jq '.[0].tagName') }
+    & gh release download $tag -R $Repo -p $Asset -D $tmp --clobber; if ($LASTEXITCODE -ne 0) { Die "download failed (web and gh)." }
+  }
 }
 
 $target = Join-Path $Dir "vault.exe"

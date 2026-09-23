@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 — 2026-09-23
+
+- The repo is public now. Install is a plain `curl … | bash` (macOS/Linux) or
+  `irm … | iex` (Windows); the GitHub CLI is no longer required. `vault update` downloads
+  over HTTPS and falls back to `gh` only if that fails.
+- Example names and paths in tests and docs are generic (no real usernames or tenant paths).
+
 ## 0.3.1 — 2026-09-22
 
 - Docs and the bare `vault` message now start at step 0: how to get a shared OneDrive

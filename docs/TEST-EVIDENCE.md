@@ -134,7 +134,7 @@ compat · bypass-permission flags and settings refused · `show` · members memo
 SIZE column and large warning · memory conflict copy · lease heartbeat · leave.
 
 Read-only commands (`vault`, `status`, `doctor`, `members`, `conflicts`, `archive list`)
-also run against the two live OneDrive vaults (Testing-vault, media_vault) with the Go
+also run against the two live OneDrive vaults the team uses with the Go
 binary: correct names/owners/states, real `fileproviderctl` state, exit codes as designed.
 
 ## Findings during this round

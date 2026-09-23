@@ -20,10 +20,10 @@ Expect: version prints with `windows/amd64`; doctor shows ✓ for Windows, Claud
 
 ## W2. Encoding matches Claude (the critical check)
 
-Pick a folder under OneDrive, e.g. `C:\Users\<you>\OneDrive - Oxmiq Labs\vault-win-test`.
+Pick a folder under OneDrive, e.g. `C:\Users\<you>\OneDrive - <Your Org>\vault-win-test`.
 
 ```powershell
-cd "C:\Users\<you>\OneDrive - Oxmiq Labs\vault-win-test"
+cd "C:\Users\<you>\OneDrive - <Your Org>\vault-win-test"
 claude -p "reply OK"
 dir $env:USERPROFILE\.claude\projects | sort LastWriteTime | select -last 3
 vault encode
@@ -52,7 +52,7 @@ was removed from `.vault\sessions`. If the join says "could not verify", note it
 ## W4. Pinning
 
 ```powershell
-attrib "$env:USERPROFILE\OneDrive - Oxmiq Labs\vault-win-test\.vault"
+attrib "$env:USERPROFILE\OneDrive - <Your Org>\vault-win-test\.vault"
 vault status
 ```
 

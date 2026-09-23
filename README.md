@@ -16,7 +16,7 @@ up a conversation a teammate started with all of its context, and can hand it ba
 Sessions have **names**. You hand off `planning-review`, not `98c2c061-24a5-…`.
 Works on **macOS and Windows** (Linux builds exist; no OneDrive client there).
 
-> **Private beta.** This repo is private; ask Shash for access. Claude Code has no
+> **Beta.** Claude Code has no
 > first-party way for one person to continue another person's session
 > ([why vault exists](docs/remote-control-evaluation.md)).
 > Journal and history: [oxmiq/capsule#1559](https://github.com/oxmiq/capsule/issues/1559).
@@ -25,23 +25,20 @@ Works on **macOS and Windows** (Linux builds exist; no OneDrive client there).
 
 ## Install (2 minutes, once per machine)
 
-You need: [Claude Code](https://code.claude.com) installed and logged in
-(`claude --version` prints a version), and the [GitHub CLI](https://cli.github.com)
-logged in (`gh auth status`), because the repo is private.
+You need [Claude Code](https://code.claude.com) installed and logged in
+(`claude --version` prints a version). Nothing else.
 
 **macOS / Linux**
 
 ```bash
-gh release download -R shashb27/vault -p install.sh -O - | bash
+curl -fsSL https://github.com/shashb27/vault/releases/latest/download/install.sh | bash
 ```
 
 **Windows** (PowerShell)
 
 ```powershell
-gh release download -R shashb27/vault -p install.ps1; .\install.ps1
+irm https://github.com/shashb27/vault/releases/latest/download/install.ps1 | iex
 ```
-
-(The repo is private, so the installer comes from the release through your `gh` login.)
 
 Open a new terminal, then:
 
@@ -79,7 +76,7 @@ slightly in your tenant:
 Then each person checks the folder is really there in Finder or Explorer, with a green tick.
 The vault does nothing until OneDrive has that folder on both machines.
 
-**Which folder.** Use a dedicated folder for the vault (like `Testing-vault`), not a big
+**Which folder.** Use a dedicated folder for the vault (like `team-vault`), not a big
 existing one: everything Claude does there is shared, and the vault's hidden `.vault/`
 folder lives inside it.
 
@@ -120,7 +117,7 @@ two people and timing), and a lookup table for everything the tool prints.
 <details>
 <summary><b>I'm new here and want to set up</b></summary>
 
-1. `gh auth login` if you haven't, then the one-line install above. Open a new terminal.
+1. Run the one-line install above. Open a new terminal.
 2. `vault doctor` — fix anything with a ✗ (it prints the fix under each).
 3. Make sure the team's shared folder is on your machine (Step 0 above). If the team has
    none yet, create it there first. Then `cd` into it.

@@ -41,7 +41,7 @@ install.sh, install.ps1      download the right asset with `gh release download`
 | Concern | macOS | Windows | Linux |
 |---|---|---|---|
 | Claude projects dir | `~/.claude/projects` | `%USERPROFILE%\.claude\projects` | `~/.claude/projects` |
-| Path encoding | UTF-16 units, non-alphanumeric → `-`, >200 chars truncated + base36 java-hash | same rule applied to the realpath, e.g. `C:\Users\a\OneDrive - Oxmiq Labs\v` → `C--Users-a-OneDrive---Oxmiq-Labs-v` (**unverified on Windows**; join self-test guards it) | same |
+| Path encoding | UTF-16 units, non-alphanumeric → `-`, >200 chars truncated + base36 java-hash | same rule applied to the realpath, e.g. `C:\Users\a\OneDrive - Example Co\v` → `C--Users-a-OneDrive---Example-Co-v` (**unverified on Windows**; join self-test guards it) | same |
 | Link projects dir → vault | symlink | directory junction via `cmd /c mklink /J` (no admin or developer mode needed); detected via reparse-point attribute | symlink |
 | Is this a synced folder? | under `~/Library/CloudStorage/` | under `%OneDrive%`, `%OneDriveCommercial%` or `%OneDriveConsumer%` | never (warn) |
 | Sync state | `fileproviderctl evaluate` (undocumented) | file attributes: `RECALL_ON_DATA_ACCESS` = cloud-only, `PINNED`, `UNPINNED`; no "uploading" signal, so the upload wait is a fixed short grace | none |

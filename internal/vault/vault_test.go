@@ -15,8 +15,8 @@ func TestEncodePath(t *testing.T) {
 		"/tmp/my vault_dir": "-tmp-my-vault-dir",
 		"/tmp/café_vault":   "-tmp-caf--vault", // é is one UTF-16 unit
 		"/a/b.c-d":          "-a-b-c-d",
-		"/Users/shashvath.bhaskar/Library/CloudStorage/OneDrive-OxmiqLabs/Testing-vault": "-Users-shashvath-bhaskar-Library-CloudStorage-OneDrive-OxmiqLabs-Testing-vault",
-		`C:\Users\Administrator\OneDrive - Oxmiq Labs\playground`:                        "C--Users-Administrator-OneDrive---Oxmiq-Labs-playground",
+		"/Users/alice.smith/Library/CloudStorage/OneDrive-ExampleCo/Team-vault": "-Users-alice-smith-Library-CloudStorage-OneDrive-ExampleCo-Team-vault",
+		`C:\Users\Administrator\OneDrive - Example Co\playground`:               "C--Users-Administrator-OneDrive---Example-Co-playground",
 	}
 	for in, want := range cases {
 		if got := EncodePath(in); got != want {
@@ -187,10 +187,10 @@ func TestConflictAndMemoryNames(t *testing.T) {
 
 func TestUserForAndPaths(t *testing.T) {
 	v := &Vault{}
-	if v.userFor("/Users/tvisha.devavarapu/Library/CloudStorage/x") != "tvisha.devavarapu" {
+	if v.userFor("/Users/bob.jones/Library/CloudStorage/x") != "bob.jones" {
 		t.Error("mac home attribution")
 	}
-	if v.userFor(`C:\Users\Administrator\OneDrive - Oxmiq Labs\v`) != "Administrator" {
+	if v.userFor(`C:\Users\Administrator\OneDrive - Example Co\v`) != "Administrator" {
 		t.Error("windows home attribution")
 	}
 	if v.userFor("") != "?" {

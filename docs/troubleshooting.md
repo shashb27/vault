@@ -114,10 +114,11 @@ Open a new terminal. If it still isn't found, check that `~/.local/bin` is on yo
 The installer removes it (backup in `~/.zshrc.vault-backup`). If you added one by hand
 elsewhere, delete it; it shadows the new command.
 
-## `vault update` says it needs gh
+## `vault update` fails to download
 
-The repo is private, so downloads go through the GitHub CLI. Install it
-(https://cli.github.com) and run `gh auth login` once.
+It fetches the release over plain HTTPS from github.com. If your network blocks that,
+or you are on a private fork, install the GitHub CLI (https://cli.github.com), run
+`gh auth login`, and `vault update` uses it as a fallback.
 
 ## My `.vault` folder keeps going "cloud-only"
 

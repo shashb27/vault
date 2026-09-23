@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # vault installer for macOS and Linux.
 #
-#   gh auth status                      # the repo is private: you need the GitHub CLI logged in
-#   gh release download -R shashb27/vault -p install.sh -O - | bash
+#   curl -fsSL https://github.com/shashb27/vault/releases/latest/download/install.sh | bash
 #   # or, from a checkout:  ./install.sh
 #
 # What it does: downloads the vault binary for this machine from the latest GitHub
@@ -31,13 +30,16 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 if [[ -n "${VAULT_LOCAL:-}" ]]; then
   cp "$VAULT_LOCAL" "$tmp/$asset"
 else
-  command -v gh >/dev/null || die "the GitHub CLI (gh) is required because the repo is private: https://cli.github.com then 'gh auth login'"
-  gh auth status >/dev/null 2>&1 || die "run 'gh auth login' first (the repo is private)."
-  # newest release INCLUDING pre-releases (gh's "latest" skips betas)
-  tag="${VAULT_VERSION:-$(gh release list -R "$REPO" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)}"
-  [[ -n "$tag" ]] || die "no release found at https://github.com/$REPO — do you have access? Ask Shash."
-  echo "  downloading $asset from $REPO ${tag}…"
-  gh release download "$tag" -R "$REPO" -p "$asset" -D "$tmp" --clobber || die "download failed. Do you have access to https://github.com/$REPO ? Ask Shash."
+  if [[ -n "${VAULT_VERSION:-}" ]]; then url="https://github.com/$REPO/releases/download/${VAULT_VERSION}/$asset"
+  else url="https://github.com/$REPO/releases/latest/download/$asset"; fi
+  echo "  downloading $asset ${VAULT_VERSION:-(latest release)}…"
+  if ! curl -fsSL "$url" -o "$tmp/$asset"; then
+    # private fork / no anonymous access: fall back to the GitHub CLI if present
+    command -v gh >/dev/null || die "download failed from $url"
+    tag="${VAULT_VERSION:-$(gh release list -R "$REPO" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)}"
+    [[ -n "$tag" ]] || die "download failed from $url and gh found no release"
+    gh release download "$tag" -R "$REPO" -p "$asset" -D "$tmp" --clobber || die "download failed (curl and gh)."
+  fi
 fi
 chmod +x "$tmp/$asset"
 if [[ -e "$BIN/vault" && -L "$BIN/vault" ]]; then rm "$BIN/vault"; fi   # old symlink-style install

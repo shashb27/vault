@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -877,8 +879,11 @@ func cmdDoctor() (int, error) {
 	chk(true, platformName, "")
 	cv := claudeVersion()
 	chk(cv != "", "Claude Code installed "+dim(cv), "install Claude Code and run 'claude' once to log in")
-	_, err := exec.LookPath("gh")
-	chk(err == nil, "GitHub CLI (gh) available — needed by 'vault update'", "https://cli.github.com then 'gh auth login'")
+	if _, err := exec.LookPath("gh"); err == nil {
+		ok("GitHub CLI (gh) available %s", dim("(optional: fallback for 'vault update')"))
+	} else {
+		info("%s GitHub CLI not installed — fine; 'vault update' downloads over HTTPS", dim("·"))
+	}
 	v, inVault := findVault()
 	if inVault {
 		chk(true, "inside vault "+bold(v.Name)+" "+dim(v.Root), "")
@@ -1022,9 +1027,6 @@ func assetName() string {
 }
 
 func cmdUpdate(args []string) error {
-	if _, err := exec.LookPath("gh"); err != nil {
-		return fail("'vault update' needs the GitHub CLI (gh) logged in, because the repo is private. Install from https://cli.github.com and run 'gh auth login'.")
-	}
 	exe, err := os.Executable()
 	if err != nil {
 		return fail("cannot find my own executable: %v", err)
@@ -1035,28 +1037,46 @@ func cmdUpdate(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
+	fresh := filepath.Join(tmp, assetName())
+
 	tag := ""
 	if len(args) > 0 && args[0] != "" {
-		tag = args[0] // explicit tag
-	} else { // newest release INCLUDING pre-releases (gh's "latest" skips betas)
-		outb, err := exec.Command("gh", "release", "list", "-R", repoSlug, "--limit", "1", "--json", "tagName", "--jq", ".[0].tagName").Output()
-		tag = strings.TrimSpace(string(outb))
-		if err != nil || tag == "" {
-			return fail("could not find a release at https://github.com/%s (is gh logged in, do you have access?)", repoSlug)
-		}
+		tag = args[0]
+	} else if t, err := latestTagHTTP(); err == nil {
+		tag = t
 	}
-	if tag == "v"+Version || tag == Version {
+	if tag != "" && (tag == "v"+Version || tag == Version) {
 		ok("already on %s", tag)
 		return nil
 	}
-	ghArgs := []string{"release", "download", tag, "-R", repoSlug, "-p", assetName(), "-D", tmp, "--clobber"}
-	fmt.Printf("  downloading %s…", tag)
-	if outb, err := exec.Command("gh", ghArgs...).CombinedOutput(); err != nil {
-		fmt.Println()
-		return fail("download failed: %s", strings.TrimSpace(string(outb)))
+	// 1) plain HTTPS from the public release; 2) GitHub CLI (works for a private fork too)
+	var dlErr error
+	if tag != "" {
+		fmt.Printf("  downloading %s…", tag)
+		dlErr = httpDownload(fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repoSlug, tag, assetName()), fresh)
+	} else {
+		fmt.Print("  downloading the latest release…")
+		dlErr = httpDownload(fmt.Sprintf("https://github.com/%s/releases/latest/download/%s", repoSlug, assetName()), fresh)
+	}
+	if dlErr != nil {
+		if _, err := exec.LookPath("gh"); err != nil {
+			fmt.Println()
+			return fail("download failed (%v) and the GitHub CLI is not installed to try another way.", dlErr)
+		}
+		if tag == "" {
+			outb, err := exec.Command("gh", "release", "list", "-R", repoSlug, "--limit", "1", "--json", "tagName", "--jq", ".[0].tagName").Output()
+			tag = strings.TrimSpace(string(outb))
+			if err != nil || tag == "" {
+				fmt.Println()
+				return fail("could not find a release at https://github.com/%s", repoSlug)
+			}
+		}
+		if outb, err := exec.Command("gh", "release", "download", tag, "-R", repoSlug, "-p", assetName(), "-D", tmp, "--clobber").CombinedOutput(); err != nil {
+			fmt.Println()
+			return fail("download failed: %s", strings.TrimSpace(string(outb)))
+		}
 	}
 	fmt.Println()
-	fresh := filepath.Join(tmp, assetName())
 	os.Chmod(fresh, 0o755)
 	newVer, _ := exec.Command(fresh, "version").Output()
 	if runtime.GOOS == "windows" { // a running exe can't be overwritten, but it can be renamed
@@ -1075,6 +1095,50 @@ func cmdUpdate(args []string) error {
 	}
 	ok("updated %s → %s", Version, nv)
 	return nil
+}
+
+// latestTagHTTP asks the public GitHub API for the newest non-prerelease tag.
+func latestTagHTTP() (string, error) {
+	c := &http.Client{Timeout: 15 * time.Second}
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+repoSlug+"/releases/latest", nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "vault/"+Version)
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var r struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil || r.TagName == "" {
+		return "", fmt.Errorf("no tag in response")
+	}
+	return r.TagName, nil
+}
+
+func httpDownload(url, dst string) error {
+	c := &http.Client{Timeout: 5 * time.Minute}
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "vault/"+Version)
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+	}
+	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, resp.Body)
+	return err
 }
 
 func copyFile(src, dst string) error {
