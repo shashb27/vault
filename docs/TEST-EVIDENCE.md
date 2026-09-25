@@ -194,8 +194,8 @@ through vault? If it post-dates 0.2 with both through vault, the 0.5 merge shoul
 
 ## Adversarial review of the 0.4 branch (2026-09-24/25)
 Three reviewers (correctness, security, UX/docs), every finding sent to two independent
-verifiers instructed to refute it with a reproduction. 9 findings confirmed (2 duplicates),
-6 refuted; 4 verifications were cut off by a usage limit and re-run after the reset.
+verifiers instructed to refute it with a reproduction. Final tally after the limit-cut
+verifiers were re-run: 12 findings confirmed (2 duplicates), 3 refuted, 0 contested.
 Confirmed and fixed:
 1. `vault note` on a session with no clean-exit marker invented one attributed to the note
    author, permanently disarming the resume fork gate for sessions driven by plain `claude`
@@ -210,8 +210,11 @@ Confirmed and fixed:
 5. `@who` was stored uncapped and unchecked; marker fields were sanitised only on write.
    Now capped and secret-checked together, and cleaned on read.
 6. The exit line printed `→ next: for sam: …` while the docs said `→ for sam: …`. Aligned.
-Refuted findings (fixed anyway as hardening): Ctrl-C during the exit prompt, "Waiting for
-you" pointing at an in-use session, `--clear` position and missing help lines, control
-characters in note text.
+Also confirmed and fixed (minor): "Waiting for you" could point at a session shown as
+`in use`; `--clear` only as the second word and `VAULT_NO_NOTE` missing from help; control
+characters in note text reached every member's terminal. Refuted: two Ctrl-C-at-the-prompt
+variants (hardened anyway: SIGINT stays ignored until the marker and lease are written) and
+"the join self-test still loads shared CLAUDE.md/auto-memory" (by design; only hooks, env,
+apiKeyHelper and project MCP are isolated).
 After fixes: `go test` green; `tests/sim.sh` **99 pass, 0 fail** (5 new checks: note never
 invents a marker, untouched resume keeps the note, carry-forward, ambiguous login, host-specific).
