@@ -218,7 +218,7 @@ Every line here is text vault actually prints. Find the one on your screen.
 | `a session named 'x' already exists in this vault` | names are unique per vault | `vault resume x`, or pick another name |
 | `'--dangerously-skip-permissions' is not allowed inside a vault` | bypassing prompts here would let any member run anything on your machine | `vault private` for that |
 | `alex left a note for you: "…"` | the previous person addressed this handoff to you | read it; Claude sees it too, as information |
-| `alex left a note for sam: "…" — carrying on` | the note was for someone else; nothing stops you | continue, or leave it for sam |
+| `alex left a note for sam: "…" — carrying on, the note stays for sam` | the note was for someone else; nothing stops you, and your exit keeps it addressed to sam | continue |
 | `no member matches 'x'` | `@x` is not a login, host or login@host of any member, or the prefix fits two members | check `vault members`; use a longer prefix |
 
 **Warnings that can appear on any command**
@@ -338,7 +338,7 @@ Bugs and ideas: [open an issue](https://github.com/shashb27/vault/issues).
 git clone https://github.com/shashb27/vault ~/code/vault && cd ~/code/vault
 go build -o dist/vault ./cmd/vault      # needs Go 1.27+
 go test ./...                           # unit tests: encoding, resolve, transcripts, leases, secrets
-tests/sim.sh                            # two simulated users, real Claude calls, 94 checks, ~8 min
+tests/sim.sh                            # two simulated users, real Claude calls, 99 checks, ~9 min
 VAULT_LOCAL=dist/vault ./install.sh     # install your build
 ./build.sh 0.3.0                        # cross-compile every platform into dist/
 ```

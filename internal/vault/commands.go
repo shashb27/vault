@@ -175,7 +175,7 @@ func cmdHome() error {
 	}
 	waiting := false
 	for _, s := range rows {
-		if s.Handoff && v.addressedToMe(s.HandoffTo) {
+		if s.Handoff && v.addressedToMe(s.HandoffTo) && !strings.HasPrefix(s.State, "in use") && s.State != "syncing" {
 			if !waiting {
 				out("%s", bold("Waiting for you"))
 				waiting = true
@@ -215,7 +215,7 @@ func printHelp() {
   vault resume [<name>]      continue a session (waits for sync, checks nobody is in it)
   vault sessions             list sessions: name, state, who started, who last touched
   vault show <name> [N]      read the last N turns before you jump in
-  vault note <name> [@who] [text]   leave or read the one-line handoff note for a session
+  vault note <name> [@who] [text] | --clear   leave, read or clear the one-line handoff note
   vault rename <old> <new>   give a session a better name
 
 %s
@@ -235,6 +235,7 @@ func printHelp() {
 
 %s  resume --steal (take over someone's session)  ·  resume --now (skip the sync wait)
        new/resume --for <who> --note "<text>"  set the handoff note without being asked at exit
+       VAULT_NO_NOTE=1  never ask for a note at exit
        new/resume pass any other flags straight to claude (bypass-permissions flags are refused)
        %s
 
@@ -632,9 +633,12 @@ func cmdResume(args []string) (int, error) {
 			}
 		default:
 			if note.Note != "" {
-				info("%s left a note for %s: \"%s\" — carrying on", note.User, note.To, note.Note)
+				info("%s left a note for %s: \"%s\" — carrying on, the note stays for %s", note.User, note.To, note.Note, note.To)
 			} else {
-				info("%s handed this session to %s — carrying on", note.User, note.To)
+				info("%s handed this session to %s — carrying on, it stays addressed to %s", note.User, note.To, note.To)
+			}
+			if opts.To == "" && opts.Note == "" { // not for me: carry it forward at my exit
+				opts.To, opts.Note = note.To, note.Note
 			}
 		}
 	}
@@ -672,13 +676,9 @@ func cmdNote(args []string) error {
 	}
 	m := v.readMarker(sid)
 	if m == nil {
-		f := filepath.Join(v.SessionsDir, sid+".jsonl")
-		fi, statErr := os.Stat(f)
-		_, held := v.activeLeases()[sid]
-		if statErr != nil || !tailValid(f) || held || time.Since(fi.ModTime()) <= idleOKSecs*time.Second {
-			return fail("'%s' has no clean-exit marker yet (someone may still be in it) — resume and exit it cleanly, then leave the note.", label)
-		}
-		m = &Marker{User: v.self.User, Host: v.self.Host, ReleasedAt: nowISO()}
+		// Never invent a clean exit: a marker is the resume gate's evidence that someone
+		// finished, and it names who. Notes ride on real markers only.
+		return fail("'%s' has no clean-exit marker yet (someone may still be in it) — resume and exit it cleanly, then leave the note; or say it at your own exit.", label)
 	}
 	if len(args) == 1 {
 		if m.Note == "" && m.To == "" {
@@ -688,7 +688,19 @@ func cmdNote(args []string) error {
 		}
 		return nil
 	}
-	if args[1] == "--clear" {
+	clear := false
+	var words []string
+	for _, a := range args[1:] {
+		if a == "--clear" {
+			clear = true
+		} else {
+			words = append(words, a)
+		}
+	}
+	if clear && len(words) > 0 {
+		return fail("--clear takes no text")
+	}
+	if clear {
 		m.To, m.Note = "", ""
 		if err := v.writeMarker(sid, *m); err != nil {
 			return fail("could not write the marker: %v", err)
@@ -696,7 +708,7 @@ func cmdNote(args []string) error {
 		ok("cleared the note on %s", label)
 		return nil
 	}
-	to, note := parseNote(strings.Join(args[1:], " "))
+	to, note := parseNote(strings.Join(words, " "))
 	if to != "" {
 		if canon, cands := v.matchMember(to); canon != "" {
 			to = canon
@@ -704,7 +716,7 @@ func cmdNote(args []string) error {
 			warn("no member matches '%s' (members: %s) — stored as typed", to, strings.Join(cands, ", "))
 		}
 	}
-	if noteHasSecret(note) {
+	if noteHasSecret(strings.Join(words, " ")) {
 		return fail("that note looks like it contains a secret — not stored. Everyone in the vault can read markers.")
 	}
 	m.To, m.Note = to, note

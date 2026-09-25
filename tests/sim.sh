@@ -259,6 +259,23 @@ out="$(as_alice 2>&1)"
 check '! echo "$out" | grep -q "Waiting for you"' "…and not on alice's"
 out="$(as_alice resume heron --now -p "Reply OK." 2>&1 </dev/null)"; rc=$?
 check '[[ $rc == 0 ]] && echo "$out" | grep -q "left a note for bob-mac" && echo "$out" | grep -q "carrying on"' "note addressed elsewhere: info line, not a refusal"
+check 'grep -q "\"to\":\"bob-mac\"" "$U1/.vault/handoff/$HSID.done" && grep -q "host test" "$U1/.vault/handoff/$HSID.done"' "a note for someone else survives my resume (carried forward)"
+out="$(as_bob resume heron --now --version 2>&1 </dev/null)"; rc=$?
+check 'grep -q "\"to\":\"bob-mac\"" "$U1/.vault/handoff/$HSID.done" && echo "$out" | grep -q "kept as they were"' "a resume that adds nothing keeps the marker and note"
+python3 - "$U1/.vault/users.json" <<'PY'
+import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["users"].append({"user":"bob","host":"bob-pc","vault_path":"/Users/bob/other","joined_at":"2026-09-24T00:00:00Z"}); json.dump(d,open(p,"w"),indent=1)
+PY
+out="$(as_alice note heron @bob "which bob" 2>&1)"; rc=$?
+check '[[ $rc == 0 ]] && echo "$out" | grep -q "no member matches .bob." && echo "$out" | grep -q "bob@bob-pc"' "a login on two machines is ambiguous as a bare @login (warned, members listed)"
+out="$(as_alice note heron @bob-mac "that bob" 2>&1)"; rc=$?
+check '[[ $rc == 0 ]] && grep -q "\"to\":\"bob-mac\"" "$U1/.vault/handoff/$HSID.done"' "…the machine name is specific"
+python3 - "$U1/.vault/users.json" <<'PY'
+import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["users"]=[u for u in d["users"] if u.get("host")!="bob-pc"]; json.dump(d,open(p,"w"),indent=1)
+PY
+SID3="$(uuidgen | tr 'A-Z' 'a-z')"
+( cd "$U1" && claude -p --session-id "$SID3" "Team fact: the standup is at 9. Reply OK." >/dev/null 2>&1 )
+out="$(as_alice note "${SID3:0:8}" @bob "note on a bare session" 2>&1)"; rc=$?
+check '[[ $rc != 0 ]] && echo "$out" | grep -q "no clean-exit marker yet" && [[ ! -f "$U1/.vault/handoff/$SID3.done" ]]' "vault note never invents a clean-exit marker"
 out="$(as_alice resume heron --now --for alice@alice-mac --note "self" -p "Reply OK." 2>&1 </dev/null)"; rc=$?
 check '[[ $rc == 0 ]] && grep -q "\"to\":\"alice@alice-mac\"" "$U1/.vault/handoff/$HSID.done"' "--for user@host stored as typed"
 out="$(as_alice 2>&1)"

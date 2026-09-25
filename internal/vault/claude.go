@@ -36,9 +36,6 @@ func runClaude(dir string, args []string) int {
 	cmd := exec.Command(claudeBinary, args...)
 	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	// Let Claude handle Ctrl-C itself; we just wait.
-	signal.Ignore(os.Interrupt)
-	defer signal.Reset(os.Interrupt)
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -98,7 +95,10 @@ func findNonce(dir, nonce string, since time.Time) string {
 
 // launchOpts carries a handoff note set up front (--for/--note); empty means
 // ask at exit when interactive, or write nothing.
-type launchOpts struct{ To, Note string }
+type launchOpts struct {
+	To, Note   string
+	skipPrompt bool
+}
 
 func (v *Vault) reorientPrompt(note *Marker) string {
 	s := v.reorientBase()
@@ -131,19 +131,33 @@ func (v *Vault) launch(sid string, steal bool, args []string, opts launchOpts) (
 			}
 		}
 	}
+	prev := v.readMarker(sid)                               // restored if this run never touches the transcript
 	os.Remove(filepath.Join(v.Dir, "handoff", sid+".done")) // live again
+	// Ctrl-C belongs to Claude while it runs, and must not kill us between Claude's
+	// exit and the marker/lease bookkeeping (the exit prompt sits in that window).
+	signal.Ignore(os.Interrupt)
+	defer signal.Reset(os.Interrupt)
 	rc := runClaude(v.Root, args)
 	close(stop)
 	out("")
-	v.finishHandoff(start, sizes, args, opts)
+	if rc != 0 {
+		opts.skipPrompt = true // abnormal exit: write the plain marker, never block on a prompt
+	}
+	touched := v.finishHandoff(start, sizes, args, opts)
+	if !touched[sid] && prev != nil {
+		if err := v.writeMarker(sid, *prev); err == nil {
+			info(dim("(nothing was added to the session — its handoff marker and note are kept as they were)"))
+		}
+	}
 	v.releaseLease(sid)
 	return rc, nil
 }
 
 // finishHandoff marks every session THIS run touched as handed off, waits for
 // the upload where the platform can tell, and scans what was added for secrets.
-func (v *Vault) finishHandoff(start time.Time, before map[string]int64, args []string, opts launchOpts) {
+func (v *Vault) finishHandoff(start time.Time, before map[string]int64, args []string, opts launchOpts) map[string]bool {
 	os.MkdirAll(filepath.Join(v.Dir, "handoff"), 0o755)
+	touchedIDs := map[string]bool{}
 	touched := false
 	matches, _ := filepath.Glob(filepath.Join(v.SessionsDir, "*.jsonl"))
 	for _, f := range matches {
@@ -159,6 +173,7 @@ func (v *Vault) finishHandoff(start time.Time, before map[string]int64, args []s
 			continue
 		}
 		touched = true
+		touchedIDs[sid] = true
 		name := ""
 		if s := v.sessionByID(sid); s != nil {
 			name = s.Name
@@ -168,7 +183,7 @@ func (v *Vault) finishHandoff(start time.Time, before map[string]int64, args []s
 			label = sid[:8]
 		}
 		m := Marker{User: v.self.User, Host: v.self.Host, ReleasedAt: nowISO(), To: opts.To, Note: opts.Note}
-		if opts.To == "" && opts.Note == "" && shouldAskNote(args) {
+		if opts.To == "" && opts.Note == "" && !opts.skipPrompt && shouldAskNote(args) {
 			line := readLine(fmt.Sprintf("  hand off %s — one line for the next person, '@name' to address it (Enter to skip): ", label))
 			if line == "" {
 				info(dim(fmt.Sprintf("(no note — add one with: vault note \"%s\" @who \"text\")", label)))
@@ -181,9 +196,9 @@ func (v *Vault) finishHandoff(start time.Time, before map[string]int64, args []s
 						warn("no member matches '%s' (members: %s) — stored as typed", to, strings.Join(cands, ", "))
 					}
 				}
-				if noteHasSecret(note) {
+				if noteHasSecret(line) {
 					warn("that note looks like it contains a secret — not stored. Everyone in the vault can read markers.")
-					note = ""
+					to, note = "", ""
 				}
 				m.To, m.Note = to, note
 			}
@@ -215,10 +230,11 @@ func (v *Vault) finishHandoff(start time.Time, before map[string]int64, args []s
 			hint("they run:  vault resume %s   (give it a name: vault rename %s <name>)", sid[:8], sid[:8])
 		}
 		if m.Note != "" || m.To != "" {
-			hint("for %s: %s", toOrAnyone(m.To), m.Note)
+			out("%s for %s: %s", dim("  →"), toOrAnyone(m.To), m.Note)
 		}
 	}
 	if !touched {
 		info(dim("(no shared session was changed in this run)"))
 	}
+	return touchedIDs
 }

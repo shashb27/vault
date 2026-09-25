@@ -18,7 +18,16 @@ round 2). Record: journal entries #14a–#14z on oxmiq/capsule#1559.
 - `vault note <session> [@who] [text] | --clear`, and `--for <who> --note "<text>"` on
   `vault new`/`vault resume`, set a note without a terminal. `@who` resolves case-insensitively
   against members' user, host and user@host, or a prefix that fits exactly one member.
-- Notes are capped at 280 characters and refused if they look like a secret.
+- Notes are capped at 280 characters, stripped of control characters, and refused if they
+  look like a secret. `vault note` never invents a clean-exit marker: on a session nobody
+  has exited cleanly it refuses (review finding, 2026-09-24). No prompt after an abnormal
+  Claude exit; Ctrl-C during the prompt cannot skip the marker or the lease release.
+  "Waiting for you" skips sessions that are in use or still syncing. A resume that adds
+  nothing to the session (Claude failed to start, no turn) keeps the marker and note as they
+  were; a note addressed to someone else survives your resume and stays addressed to them.
+  A bare `@login` that joined from several machines is ambiguous (use the machine name or
+  login@machine); `@who` and notes are capped and secret-checked together; marker fields are
+  sanitised on read as well as on write (markers are as editable as transcripts).
 - Marker conflict copies (`<id>-<Machine>.done`) are filed under `.vault/conflicts/` silently.
 
 **Join hardening.**
@@ -28,7 +37,7 @@ round 2). Record: journal entries #14a–#14z on oxmiq/capsule#1559.
   2.1.280: a planted SessionStart hook fired with plain `claude -p` and not with the flags.
   `--bare` was rejected: it never reads OAuth/keychain, so subscription logins would fail.
 
-**Tests.** 12 new Go tests; sim suite grows from 65 to 94 checks (join hardening J1–J3 and a
+**Tests.** 12 new Go tests; sim suite grows from 65 to 99 checks (join hardening J1–J3 and a
 handoff-notes section), all guarded so `legacy/vault.sh` still passes its 65.
 
 **Caveat.** The interactive exit prompt is best-effort on Windows until W11 in

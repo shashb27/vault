@@ -130,8 +130,8 @@ $ vault note planning-review          # read it
 $ vault note planning-review --clear
 ```
 
-`vault note` refuses while someone holds the session, and on a session that has never been
-exited cleanly unless it has been idle for over 15 minutes.
+`vault note` refuses while someone holds the session, and on a session nobody has exited
+cleanly yet: a note rides on a real clean-exit marker, it never invents one.
 
 ## Renaming
 

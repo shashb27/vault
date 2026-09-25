@@ -6,7 +6,32 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
+
+// cleanText drops control characters and escape sequences' lead bytes: notes are
+// printed on every member's terminal and quoted into Claude's prompt, and markers
+// are as editable as transcripts.
+func cleanText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return ' '
+		case r == 0x1b || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == unicode.ReplacementChar:
+			return -1
+		}
+		return r
+	}, s)
+}
+
+const toMaxRunes = 64
+
+func capRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
 
 // A handoff marker (.vault/handoff/<sid>.done) says a session was exited cleanly.
 // Since 0.4 it may also carry "for whom, what next": To and Note. Both optional,
@@ -37,6 +62,9 @@ func readMarkerFile(path string) *Marker {
 	if json.Unmarshal(b, &m) != nil {
 		return nil
 	}
+	m.User, m.Host = capRunes(cleanText(m.User), toMaxRunes), capRunes(cleanText(m.Host), toMaxRunes)
+	m.To = capRunes(cleanText(m.To), toMaxRunes)
+	m.Note = capRunes(strings.TrimSpace(wsRe.ReplaceAllString(cleanText(m.Note), " ")), noteMaxRunes)
 	return &m
 }
 
@@ -61,7 +89,7 @@ func (v *Vault) writeMarker(sid string, m Marker) error {
 // parseNote splits "@sam check the totals" into (sam, "check the totals").
 // Whitespace is collapsed, the note is capped at noteMaxRunes. Never errors.
 func parseNote(line string) (to, note string) {
-	line = strings.TrimSpace(line)
+	line = strings.TrimSpace(cleanText(line))
 	if strings.HasPrefix(line, "@") {
 		rest := line[1:]
 		if i := strings.IndexAny(rest, " \t\n"); i >= 0 {
@@ -70,11 +98,8 @@ func parseNote(line string) (to, note string) {
 			to, line = rest, ""
 		}
 	}
-	note = strings.TrimSpace(wsRe.ReplaceAllString(line, " "))
-	if r := []rune(note); len(r) > noteMaxRunes {
-		note = string(r[:noteMaxRunes])
-	}
-	return to, note
+	note = capRunes(strings.TrimSpace(wsRe.ReplaceAllString(line, " ")), noteMaxRunes)
+	return capRunes(to, toMaxRunes), note
 }
 
 func noteHasSecret(note string) bool {
@@ -89,8 +114,13 @@ func noteHasSecret(note string) bool {
 // memberList returns "user@host" per users.json row, in file order.
 func (v *Vault) memberList() []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, m := range v.users() {
-		out = append(out, m.User+"@"+m.Host)
+		t := m.User + "@" + m.Host
+		if !seen[strings.ToLower(t)] {
+			seen[strings.ToLower(t)] = true
+			out = append(out, t)
+		}
 	}
 	return out
 }
@@ -104,34 +134,72 @@ func (v *Vault) matchMember(tok string) (string, []string) {
 		return "", nil
 	}
 	members := v.users()
-	tokens := func(m member) []string { return []string{m.User, m.Host, m.User + "@" + m.Host} }
+	// exact: host or login@host are specific; a bare login is only specific if that
+	// login joined from ONE machine (two "Administrator" Windows boxes would both match)
 	for _, m := range members {
-		for _, t := range tokens(m) {
-			if strings.EqualFold(t, tok) {
-				return t, nil
-			}
+		if strings.EqualFold(m.Host, tok) || strings.EqualFold(m.User+"@"+m.Host, tok) {
+			return tok2spelled(m, tok), nil
 		}
 	}
+	for _, m := range members {
+		if strings.EqualFold(m.User, tok) {
+			if v.loginHosts(m.User) == 1 {
+				return m.User, nil
+			}
+			return "", v.memberList()
+		}
+	}
+	// prefix: every hit is attributed to the login that owns it; unique owner → resolve
 	low := strings.ToLower(tok)
-	hitMember, hitToken, hits := -1, "", 0
-	for i, m := range members {
-		first := ""
-		for _, t := range tokens(m) {
-			if strings.HasPrefix(strings.ToLower(t), low) {
-				if first == "" {
-					first = t
-				}
-			}
+	owner, token := "", ""
+	ambiguous := false
+	for _, m := range members {
+		hit := ""
+		switch {
+		case strings.HasPrefix(strings.ToLower(m.User), low):
+			hit = m.User
+		case strings.HasPrefix(strings.ToLower(m.Host), low):
+			hit = m.Host
+		case strings.HasPrefix(strings.ToLower(m.User+"@"+m.Host), low):
+			hit = m.User + "@" + m.Host
 		}
-		if first != "" {
-			hits++
-			hitMember, hitToken = i, first
+		if hit == "" {
+			continue
+		}
+		if owner != "" && !strings.EqualFold(owner, m.User) {
+			ambiguous = true
+		}
+		if owner == "" || strings.EqualFold(hit, m.User) { // prefer the login token over a host token
+			owner, token = m.User, hit
 		}
 	}
-	if hits == 1 && hitMember >= 0 {
-		return hitToken, nil
+	if owner != "" && !ambiguous {
+		if strings.EqualFold(token, owner) && v.loginHosts(owner) > 1 && !strings.EqualFold(token, tok) {
+			// resolved to a bare login that is on several machines: fine for "Waiting for you"
+			// (it shows on each of their machines), which is what addressing a person means
+			return owner, nil
+		}
+		return token, nil
 	}
 	return "", v.memberList()
+}
+
+func tok2spelled(m member, tok string) string {
+	if strings.EqualFold(m.Host, tok) {
+		return m.Host
+	}
+	return m.User + "@" + m.Host
+}
+
+// loginHosts: how many distinct machines this login joined from.
+func (v *Vault) loginHosts(login string) int {
+	seen := map[string]bool{}
+	for _, m := range v.users() {
+		if strings.EqualFold(m.User, login) {
+			seen[strings.ToLower(m.Host)] = true
+		}
+	}
+	return len(seen)
 }
 
 // addressedToMe: a marker's To names this machine's login, host, or login@host.
@@ -218,9 +286,9 @@ func (v *Vault) resolveNoteFlags(o launchOpts) (launchOpts, error) {
 	}
 	if o.Note != "" {
 		_, o.Note = parseNote(strings.TrimPrefix(o.Note, "@")) // --note never carries an @who
-		if noteHasSecret(o.Note) {
-			return o, fail("that note looks like it contains a secret — not stored. Everyone in the vault can read markers.")
-		}
+	}
+	if noteHasSecret(o.To + " " + o.Note) {
+		return o, fail("that note looks like it contains a secret — not stored. Everyone in the vault can read markers.")
 	}
 	return o, nil
 }

@@ -191,3 +191,27 @@ Not covered: the interactive exit prompt on Windows (W11 in tests/windows-checkl
 Open question the council raised for Shash: when did the 3-way fork in Testing-vault happen
 relative to 0.2.0 (per-session leases + resume gate, 2026-09-19), and did both people launch
 through vault? If it post-dates 0.2 with both through vault, the 0.5 merge should move up.
+
+## Adversarial review of the 0.4 branch (2026-09-24/25)
+Three reviewers (correctness, security, UX/docs), every finding sent to two independent
+verifiers instructed to refute it with a reproduction. 9 findings confirmed (2 duplicates),
+6 refuted; 4 verifications were cut off by a usage limit and re-run after the reset.
+Confirmed and fixed:
+1. `vault note` on a session with no clean-exit marker invented one attributed to the note
+   author, permanently disarming the resume fork gate for sessions driven by plain `claude`
+   (reproduced end-to-end by both verifiers). Now refuses; a note rides on a real marker only.
+2. A resume that never touched the transcript (Claude failed to start, no turn) destroyed the
+   note, because launch removes the marker up front. Now restored when nothing was added.
+3. Resuming a session whose note was addressed to someone else silently dropped the note.
+   Now carried forward at the resumer's exit and said so.
+4. A bare `@login` that joined from two machines could never be addressed by prefix; and an
+   exact `@Administrator` matched every Windows member. Prefix hits are now attributed to the
+   owning login; an exact bare login on several machines is ambiguous (use host or login@host).
+5. `@who` was stored uncapped and unchecked; marker fields were sanitised only on write.
+   Now capped and secret-checked together, and cleaned on read.
+6. The exit line printed `→ next: for sam: …` while the docs said `→ for sam: …`. Aligned.
+Refuted findings (fixed anyway as hardening): Ctrl-C during the exit prompt, "Waiting for
+you" pointing at an in-use session, `--clear` position and missing help lines, control
+characters in note text.
+After fixes: `go test` green; `tests/sim.sh` **99 pass, 0 fail** (5 new checks: note never
+invents a marker, untouched resume keeps the note, carry-forward, ambiguous login, host-specific).

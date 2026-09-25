@@ -235,7 +235,7 @@ func tempVault(t *testing.T, users string) *Vault {
 	return v
 }
 
-const fixtureUsers = `{"users":[{"user":"alice","host":"alice-mac","vault_path":"/Users/alice/v"},{"user":"Administrator","host":"SHASH-PC","vault_path":"C:\\Users\\Administrator\\v"},{"user":"shashvath.bhaskar","host":"shash-mbp","vault_path":"/Users/s/v"}]}`
+const fixtureUsers = `{"users":[{"user":"alice","host":"alice-mac","vault_path":"/Users/alice/v"},{"user":"alice","host":"alice-pc","vault_path":"/Users/alice/v2"},{"user":"Administrator","host":"SHASH-PC","vault_path":"C:\\Users\\Administrator\\v"},{"user":"Administrator","host":"OTHER-PC","vault_path":"C:\\Users\\Administrator\\v"},{"user":"shashvath.bhaskar","host":"shash-mbp","vault_path":"/Users/s/v"}]}`
 
 func TestMarker(t *testing.T) {
 	v := tempVault(t, fixtureUsers)
@@ -280,6 +280,9 @@ func TestParseNote(t *testing.T) {
 			t.Errorf("parseNote(%q) = (%q,%q), want (%q,%q)", c.in, to, note, c.to, c.note)
 		}
 	}
+	if to, note := parseNote("@sam\x1b[31m red \x07bell"); to != "sam[31m" || note != "red bell" {
+		t.Errorf("control chars must be stripped: %q %q", to, note)
+	}
 	_, long := parseNote(strings.Repeat("é", 400))
 	if len([]rune(long)) != 280 {
 		t.Errorf("cap should be 280 runes, got %d", len([]rune(long)))
@@ -294,9 +297,10 @@ func TestNoteSecret(t *testing.T) {
 
 func TestMatchMember(t *testing.T) {
 	v := tempVault(t, fixtureUsers)
-	all := []string{"alice@alice-mac", "Administrator@SHASH-PC", "shashvath.bhaskar@shash-mbp"}
+	all := []string{"alice@alice-mac", "alice@alice-pc", "Administrator@SHASH-PC", "Administrator@OTHER-PC", "shashvath.bhaskar@shash-mbp"}
 	cases := map[string]string{"BOB": "", "shash": "", "shashv": "shashvath.bhaskar", "ali": "alice", "shash-pc": "SHASH-PC",
-		"administrator": "Administrator", "alice@alice-mac": "alice@alice-mac", "": ""}
+		"administrator": "", "Administrator@shash-pc": "Administrator@SHASH-PC", "other-pc": "OTHER-PC",
+		"alice@alice-mac": "alice@alice-mac", "alice@alice-p": "alice@alice-pc", "": ""}
 	for in, want := range cases {
 		got, cands := v.matchMember(in)
 		if got != want {

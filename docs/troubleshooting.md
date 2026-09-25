@@ -74,8 +74,9 @@ Trust and permission grants are per-person, by design. Grant them yourself. Neve
 ## `vault note` says "… is in that session right now" or "has no clean-exit marker yet"
 
 Notes live in the clean-exit marker. While someone holds the session, or before anyone has
-exited it cleanly (unless it has been idle over 15 minutes), there is nothing safe to write
-to. Resume it, exit cleanly, then leave the note, or leave it at your own exit.
+exited it cleanly, there is nothing safe to write to: inventing a marker would tell everyone
+the session was finished by someone who never ran it. Resume it, exit cleanly, then leave
+the note, or say it at your own exit.
 
 ## "no member matches 'x'"
 
