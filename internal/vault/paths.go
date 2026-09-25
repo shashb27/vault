@@ -10,7 +10,7 @@ import (
 )
 
 // Version is set at build time with -ldflags "-X .../vault.Version=x.y.z".
-var Version = "0.3.0-dev"
+var Version = "0.4.0-dev"
 
 const (
 	vaultDirName   = ".vault"

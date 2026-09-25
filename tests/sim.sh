@@ -22,6 +22,7 @@ fail() { FAIL=$((FAIL+1)); echo "  ❌ $*"; }
 check() { if eval "$1"; then pass "$2"; else fail "$2  [$1]"; fi; }
 as_alice() { ( cd "$U1" && VAULT_TEST_USER=alice VAULT_TEST_HOST=alice-mac "$VAULT" "$@" ); }
 as_bob()   { ( cd "$U2" && VAULT_TEST_USER=bob   VAULT_TEST_HOST=bob-mac   "$VAULT" "$@" ); }
+NOTES=0; "$VAULT" help 2>&1 | grep -q 'vault note' && NOTES=1   # 0.4+ capability probe; legacy/vault.sh stays at 65 checks
 
 cleanup() {
   echo; echo "cleanup…"
