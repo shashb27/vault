@@ -19,16 +19,22 @@ suggests `vault resume` instead.
 
 ## 2. Alex exits Claude
 
-`Ctrl+D` or `/exit`. The wrapper then:
+`Ctrl+D` or `/exit`. The wrapper asks one line, then hands off:
 
 ```
+  hand off planning-review — one line for the next person, '@name' to address it (Enter to skip): @sam check the totals in section 3
   uploading planning-review to OneDrive…
 ✓ session planning-review handed off — teammates can resume it once OneDrive delivers it.
   → next: they run:  vault resume "planning-review"
+  → for sam: check the totals in section 3
 ```
 
-Two things happened: a *clean-exit marker* was written for the session, and the wrapper
-waited for OneDrive to finish uploading the transcript (up to 45 seconds).
+Three things happened: a *clean-exit marker* was written for the session carrying `to`
+and `note`, the wrapper waited for OneDrive to finish uploading (up to 45 seconds), and the
+note rides the same upload. `@name` is a login or a machine name as `vault members` lists
+them; a prefix works when it points at exactly one member. Enter skips the note. In a `-p`
+run, or with `VAULT_NO_NOTE=1`, nothing is asked; `vault new … --for sam --note "…"` sets it
+up front.
 
 ## 3. Sam looks
 
@@ -38,11 +44,19 @@ $ vault
 TeamVault  /Users/sam/Library/CloudStorage/OneDrive-…/TeamVault
   joined as sam · 2 members · 1 session(s)
 
-NAME              STATE       STARTED-BY  LAST-BY  LAST-ACTIVE  ID
-planning-review   handed off  alex        alex     3m ago       7b63838e
+Waiting for you
+  planning-review   from alex, 3m ago — "check the totals in section 3"
+    → vault resume "planning-review"
+
+NAME              STATE       STARTED-BY  LAST-BY  LAST-ACTIVE    SIZE  ID
+planning-review   handed off  alex        alex     3m ago         38K   7b63838e
+   for sam: "check the totals in section 3"
 
   → next: vault resume <name>     continue one   ·   vault new <name>     start a new one
 ```
+
+The **Waiting for you** block appears only on the machine the note was addressed to (by
+login, machine name, or login@machine). Everyone else sees the note under the row.
 
 STATE tells Sam what to expect:
 
@@ -60,9 +74,13 @@ plain text, so Sam knows where Alex stopped before entering.
 
 ```
 $ vault resume planning-review
+  alex left a note for you: "check the totals in section 3"
 ▶ resuming planning-review — the whole conversation so far is in context.
   exit Claude (Ctrl+D or /exit) when you're done to hand it back.
 ```
+
+Claude is told the same note, in one descriptive sentence, so Sam can just say "go". The
+note is consumed by this resume; Sam's own exit writes a fresh marker.
 
 Sam is now in Alex's conversation. Everything Sam says is appended to the same session,
 so Alex will see it too. Claude is told the vault root on Sam's Mac so file paths from
@@ -100,6 +118,20 @@ and that the vault is shared; that has been enough.
 ## 5. Sam exits, Alex continues
 
 Same as step 2, other direction. `vault sessions` on Alex's Mac now shows `LAST-BY sam`.
+
+## Leaving a note later
+
+Forgot at exit, or want to redirect a session?
+
+```
+$ vault note planning-review @sam "second pass please"
+✓ note on planning-review — for sam: "second pass please"
+$ vault note planning-review          # read it
+$ vault note planning-review --clear
+```
+
+`vault note` refuses while someone holds the session, and on a session that has never been
+exited cleanly unless it has been idle for over 15 minutes.
 
 ## Renaming
 

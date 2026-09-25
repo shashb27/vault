@@ -130,7 +130,7 @@ two people and timing), and a lookup table for everything the tool prints.
 <details>
 <summary><b>I want to start working on something</b></summary>
 
-1. `vault` — is there already a session about this? Names are in the first column.
+1. `vault` — if a teammate handed you something, it opens with **Waiting for you**: the session, who, and their one-line note. Otherwise, is there already a session about this? Names are in the first column.
 2. No → `vault new planning-review` (any name your teammates will recognise).
    Yes → `vault show planning-review` to read where it stopped, then `vault resume planning-review`.
    Not sure → `vault resume` with no name gives you a numbered list.
@@ -143,8 +143,9 @@ two people and timing), and a lookup table for everything the tool prints.
 <summary><b>I'm done for now</b></summary>
 
 1. Exit Claude with `Ctrl+D` or `/exit`. Don't just close the terminal.
-2. vault writes the clean-exit marker, waits for OneDrive to upload, and warns if what you shared looks like an API key.
-3. Tell your teammate the line it printed: `vault resume "planning-review"`.
+2. vault asks for one line: `hand off planning-review — one line for the next person, '@name' to address it (Enter to skip)`. Type `@sam check the totals in section 3`. `@name` is a login or a machine name as `vault members` lists them, not a person; a prefix works when it points at exactly one member.
+3. vault writes the clean-exit marker with your note, waits for OneDrive to upload, and warns if what you shared looks like an API key.
+4. Sam's next `vault` opens with **Waiting for you** and the exact resume command. No side channel needed. Forgot the note? `vault note planning-review @sam "…"` adds it later.
 
 Forgot and closed the window? Your teammate will be asked "continue anyway?" or see `in use by you` for up to an hour. Run `vault resume planning-review`, exit cleanly, or tell them to use `--steal`.
 
@@ -199,6 +200,8 @@ Every line here is text vault actually prints. Find the one on your screen.
 | `syncing` | the copy on your machine is incomplete | `vault resume <name>` waits for it, or just wait a minute |
 | `unknown` | no clean-exit marker: started with plain `claude`, or the exit hasn't synced | `vault resume <name>` — it asks before continuing; idle over 15 min counts as finished |
 | `(unnamed) 98c2c061` + a quoted first prompt | started without `vault new` | `vault rename 98c2c061 <name>` |
+| `Waiting for you` block above the table | a teammate handed a session to you (by your login or machine name) | the `vault resume` line under it |
+| `for sam: "check the totals"` under a row | the handoff note left for sam | if you're sam, resume; otherwise carry on with your own work |
 | `! large session(s): …` | over 5 MB: slow to sync, heavy to resume | `/compact` inside Claude before handing off |
 
 **When resuming**
@@ -214,6 +217,9 @@ Every line here is text vault actually prints. Find the one on your screen.
 | `… is working in this vault with an older vault version` | a teammate still runs v0.1/v0.2 | ask them to run the installer; `--steal` if you're sure they're done |
 | `a session named 'x' already exists in this vault` | names are unique per vault | `vault resume x`, or pick another name |
 | `'--dangerously-skip-permissions' is not allowed inside a vault` | bypassing prompts here would let any member run anything on your machine | `vault private` for that |
+| `alex left a note for you: "…"` | the previous person addressed this handoff to you | read it; Claude sees it too, as information |
+| `alex left a note for sam: "…" — carrying on` | the note was for someone else; nothing stops you | continue, or leave it for sam |
+| `no member matches 'x'` | `@x` is not a login, host or login@host of any member, or the prefix fits two members | check `vault members`; use a longer prefix |
 
 **Warnings that can appear on any command**
 
@@ -246,6 +252,7 @@ Every line here is text vault actually prints. Find the one on your screen.
 
 | You see | Do this |
 |---|---|
+| `this vault already has shared instruction/permission files you have never reviewed` | printed before the first Claude call; read them, they steer Claude on your machine |
 | `verified: Claude writes into the vault` | nothing, you're set |
 | `could not verify (is Claude logged in? …)` | run `claude` once by itself, then `vault new test`, exit, check it appears in `vault sessions` |
 | `join FAILED: this Claude version stores sessions somewhere the vault does not expect` | nothing was joined; open an issue with `claude --version` and `vault encode` output |
@@ -259,6 +266,8 @@ Every line here is text vault actually prints. Find the one on your screen.
 | Read the last turns before jumping in | `vault show planning-review` |
 | Continue a teammate's conversation | `vault resume planning-review` |
 | Continue one, choosing from a list | `vault resume` |
+| Leave a one-line note for whoever picks it up | `vault note planning-review @sam "check section 3"` |
+| Start or continue and address the handoff up front | `vault new x --for sam --note "…"` / `vault resume x --for sam` |
 | Give a session a better name | `vault rename planning-review q4-plan` |
 | Get a finished session out of the list | `vault archive planning-review` (`vault restore` brings it back) |
 | See who has joined | `vault members` |
@@ -266,9 +275,10 @@ Every line here is text vault actually prints. Find the one on your screen.
 | Work in this folder **without** sharing | `vault private` |
 
 Inside Claude everything is normal. When you're done, **exit Claude** (`Ctrl+D` or
-`/exit`). That's the handoff: vault marks the session as finished, waits for OneDrive to
-upload it, warns if what you just shared looks like an API key or private key, and prints
-the exact command your teammate runs next.
+`/exit`). That's the handoff: vault asks you for one line ("@sam check the totals"), marks
+the session as finished with that note, waits for OneDrive to upload it, warns if what you
+just shared looks like an API key or private key, and prints the exact command your teammate
+runs next. Their `vault` opens with **Waiting for you**.
 
 `vault resume` does the waiting for you: if the transcript is still syncing, or the
 previous person hasn't exited yet, it waits and tells you why. It never silently continues
@@ -309,6 +319,17 @@ Full trust model: [docs/safety.md](docs/safety.md).
 - [tests/windows-checklist.md](tests/windows-checklist.md) — what still has to be checked on a real Windows machine
 - [CHANGELOG.md](CHANGELOG.md)
 
+### Roadmap
+
+Decided by a three-architect design council on 2026-09-24 (record on the journal issue):
+
+- **0.4** (this release): handoff notes — "for whom, what next" travels with the session.
+- **0.5**: lossless conflict merge on resume — when two people fork a session, re-chain the
+  losing copy's turns onto the main transcript, with a chain check before and after, receipts,
+  `vault conflicts merge/undo`, and refusal while another member holds the lease.
+- **0.6**: shared-config review gate and per-member append-only journal (`vault review`,
+  `vault log`), for the 5–10 person stage.
+
 Bugs and ideas: [open an issue](https://github.com/shashb27/vault/issues).
 
 ## For developers
@@ -317,7 +338,7 @@ Bugs and ideas: [open an issue](https://github.com/shashb27/vault/issues).
 git clone https://github.com/shashb27/vault ~/code/vault && cd ~/code/vault
 go build -o dist/vault ./cmd/vault      # needs Go 1.27+
 go test ./...                           # unit tests: encoding, resolve, transcripts, leases, secrets
-tests/sim.sh                            # two simulated users, real Claude calls, 65 checks, ~5 min
+tests/sim.sh                            # two simulated users, real Claude calls, 94 checks, ~8 min
 VAULT_LOCAL=dist/vault ./install.sh     # install your build
 ./build.sh 0.3.0                        # cross-compile every platform into dist/
 ```

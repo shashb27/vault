@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,5 +220,190 @@ func TestBypassFlags(t *testing.T) {
 	}
 	if checkBypassFlags([]string{"--permission-mode", "plan", "-p", "hi"}) != nil {
 		t.Error("plan mode is fine")
+	}
+}
+
+// ---------- 0.4 handoff notes ----------
+
+func tempVault(t *testing.T, users string) *Vault {
+	t.Helper()
+	dir := t.TempDir()
+	v := &Vault{Root: dir, Dir: filepath.Join(dir, ".vault"), SessionsDir: filepath.Join(dir, ".vault", "sessions"), self: identity{"Administrator", "SHASH-PC"}}
+	os.MkdirAll(v.SessionsDir, 0o755)
+	os.MkdirAll(filepath.Join(v.Dir, "handoff"), 0o755)
+	os.WriteFile(filepath.Join(v.Dir, "users.json"), []byte(users), 0o644)
+	return v
+}
+
+const fixtureUsers = `{"users":[{"user":"alice","host":"alice-mac","vault_path":"/Users/alice/v"},{"user":"Administrator","host":"SHASH-PC","vault_path":"C:\\Users\\Administrator\\v"},{"user":"shashvath.bhaskar","host":"shash-mbp","vault_path":"/Users/s/v"}]}`
+
+func TestMarker(t *testing.T) {
+	v := tempVault(t, fixtureUsers)
+	sid := "7b63838e-25e4-4780-89ef-b8d0cc7a8f4f"
+	if err := v.writeMarker(sid, Marker{User: "alex", Host: "alex-mac", ReleasedAt: "2026-09-24T00:00:00Z", To: "sam", Note: "check totals"}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(v.markerPath(sid))
+	if strings.Count(string(b), "\n") != 1 || !strings.HasSuffix(string(b), "\n") {
+		t.Errorf("marker must be one line ending in newline: %q", b)
+	}
+	m := v.readMarker(sid)
+	if m == nil || m.To != "sam" || m.Note != "check totals" || m.User != "alex" {
+		t.Errorf("round trip failed: %+v", m)
+	}
+	os.WriteFile(v.markerPath(sid), []byte(`{"user":"a","host":"h","released_at":"2026-09-24T00:00:00Z"}`+"\n"), 0o644)
+	if m := v.readMarker(sid); m == nil || m.To != "" || m.Note != "" || m.User != "a" {
+		t.Errorf("legacy marker: %+v", m)
+	}
+	os.WriteFile(v.markerPath(sid), []byte("garbage"), 0o644)
+	if v.readMarker(sid) != nil || !fileExists(v.markerPath(sid)) {
+		t.Error("garbage marker should read nil while the file exists")
+	}
+	out, _ := json.Marshal(Marker{User: "a", Host: "h", ReleasedAt: "x"})
+	if strings.Contains(string(out), "\"to\"") || strings.Contains(string(out), "\"note\"") {
+		t.Errorf("omitempty: %s", out)
+	}
+}
+
+func TestParseNote(t *testing.T) {
+	cases := []struct{ in, to, note string }{
+		{"@sam check the totals", "sam", "check the totals"},
+		{"plain", "", "plain"},
+		{"@sam", "sam", ""},
+		{"@", "", ""},
+		{"a\n\nb   c", "", "a b c"},
+		{"   spaced   ", "", "spaced"},
+	}
+	for _, c := range cases {
+		to, note := parseNote(c.in)
+		if to != c.to || note != c.note {
+			t.Errorf("parseNote(%q) = (%q,%q), want (%q,%q)", c.in, to, note, c.to, c.note)
+		}
+	}
+	_, long := parseNote(strings.Repeat("é", 400))
+	if len([]rune(long)) != 280 {
+		t.Errorf("cap should be 280 runes, got %d", len([]rune(long)))
+	}
+}
+
+func TestNoteSecret(t *testing.T) {
+	if !noteHasSecret("rotate AKIAABCDEFGHIJKLMNOP") || noteHasSecret("check section 3") {
+		t.Error("noteHasSecret")
+	}
+}
+
+func TestMatchMember(t *testing.T) {
+	v := tempVault(t, fixtureUsers)
+	all := []string{"alice@alice-mac", "Administrator@SHASH-PC", "shashvath.bhaskar@shash-mbp"}
+	cases := map[string]string{"BOB": "", "shash": "", "shashv": "shashvath.bhaskar", "ali": "alice", "shash-pc": "SHASH-PC",
+		"administrator": "Administrator", "alice@alice-mac": "alice@alice-mac", "": ""}
+	for in, want := range cases {
+		got, cands := v.matchMember(in)
+		if got != want {
+			t.Errorf("matchMember(%q) = %q, want %q", in, got, want)
+		}
+		if want == "" && in != "" && strings.Join(cands, ",") != strings.Join(all, ",") {
+			t.Errorf("matchMember(%q) candidates = %v", in, cands)
+		}
+	}
+}
+
+func TestAddressedToMe(t *testing.T) {
+	v := tempVault(t, fixtureUsers)
+	for in, want := range map[string]bool{"administrator": true, "shash-pc": true, "Administrator@shash-pc": true, "shashvath.bhaskar": false, "": false} {
+		if v.addressedToMe(in) != want {
+			t.Errorf("addressedToMe(%q) != %v", in, want)
+		}
+	}
+}
+
+func TestSessionJSON(t *testing.T) {
+	b, _ := json.Marshal(&Session{ID: "x", Handoff: true, HandoffTo: "sam", HandoffNote: "n"})
+	s := string(b)
+	if !strings.Contains(s, `"handoff_to"`) || !strings.Contains(s, `"handoff_note"`) || !strings.Contains(s, `"handoff"`) || !strings.Contains(s, `"state"`) {
+		t.Errorf("json: %s", s)
+	}
+	b, _ = json.Marshal(&Session{ID: "x"})
+	if strings.Contains(string(b), "handoff_to") || strings.Contains(string(b), "handoff_note") {
+		t.Errorf("omitempty: %s", b)
+	}
+}
+
+func TestBuildIndexReadsMarker(t *testing.T) {
+	v := tempVault(t, fixtureUsers)
+	sid := "7b63838e-25e4-4780-89ef-b8d0cc7a8f4f"
+	os.WriteFile(filepath.Join(v.SessionsDir, sid+".jsonl"), []byte(`{"type":"user","cwd":"/Users/alice/v","message":{"role":"user","content":"hi"}}`+"\n"), 0o644)
+	v.writeMarker(sid, Marker{User: "alex", Host: "h", ReleasedAt: "2026-09-24T00:00:00Z", To: "sam", Note: "n"})
+	rows := v.sessions()
+	if len(rows) != 1 || !rows[0].Handoff || rows[0].HandoffTo != "sam" || rows[0].HandoffBy != "alex" || rows[0].State != "handed off" {
+		t.Errorf("rows: %+v", rows)
+	}
+}
+
+func TestArgsAreInteractive(t *testing.T) {
+	if argsAreInteractive([]string{"-p", "x"}) || argsAreInteractive([]string{"--print"}) || !argsAreInteractive([]string{"--resume", "id"}) {
+		t.Error("argsAreInteractive")
+	}
+}
+
+func TestReorientPromptNote(t *testing.T) {
+	v := tempVault(t, fixtureUsers)
+	v.Name = "team"
+	base := v.reorientPrompt(nil)
+	if base != v.reorientBase() {
+		t.Error("nil note must leave the prompt unchanged")
+	}
+	with := v.reorientPrompt(&Marker{User: "alex", Note: "check totals"})
+	if !strings.Contains(with, `left this handoff note for the member now driving: "check totals"`) || strings.Contains(with, "request") {
+		t.Errorf("note sentence wrong: %s", with)
+	}
+}
+
+func TestSelfTestArgs(t *testing.T) {
+	a := selfTestArgs("N")
+	want := []string{"-p", "--setting-sources", "user", "--strict-mcp-config", "vault join self-test N — reply OK"}
+	if strings.Join(a, "|") != strings.Join(want, "|") {
+		t.Errorf("selfTestArgs = %v", a)
+	}
+}
+
+func TestTakeNoteFlags(t *testing.T) {
+	o, rest, err := takeNoteFlags([]string{"--note", "x", "heron"})
+	if err != nil || o.Note != "x" || strings.Join(rest, ",") != "heron" {
+		t.Errorf("1: %+v %v %v", o, rest, err)
+	}
+	o, rest, _ = takeNoteFlags([]string{"heron", "--for", "bob", "-p", "hi"})
+	if o.To != "bob" || strings.Join(rest, ",") != "heron,-p,hi" {
+		t.Errorf("2: %+v %v", o, rest)
+	}
+	o, rest, _ = takeNoteFlags([]string{"--for=bob-mac", "--note=y z", "heron", "--now"})
+	if o.To != "bob-mac" || o.Note != "y z" || strings.Join(rest, ",") != "heron,--now" {
+		t.Errorf("3: %+v %v", o, rest)
+	}
+	if _, _, err := takeNoteFlags([]string{"heron", "--for"}); err == nil {
+		t.Error("dangling --for should error")
+	}
+	o, rest, _ = takeNoteFlags([]string{"-p", "hi"})
+	if o.To != "" || o.Note != "" || strings.Join(rest, ",") != "-p,hi" {
+		t.Errorf("5: %+v %v", o, rest)
+	}
+}
+
+func TestMarkerConflictSweep(t *testing.T) {
+	v := tempVault(t, fixtureUsers)
+	sid := "7b63838e-25e4-4780-89ef-b8d0cc7a8f4f"
+	h := filepath.Join(v.Dir, "handoff")
+	for _, n := range []string{sid + ".done", sid + "-Bob’s MacBook Pro.done", "." + sid + ".123"} {
+		os.WriteFile(filepath.Join(h, n), []byte("{}"), 0o644)
+	}
+	v.quarantineConflicts()
+	if !fileExists(filepath.Join(h, sid+".done")) || !fileExists(filepath.Join(h, "."+sid+".123")) {
+		t.Error("legit marker or temp file was moved")
+	}
+	if fileExists(filepath.Join(h, sid+"-Bob’s MacBook Pro.done")) || !fileExists(filepath.Join(v.Dir, "conflicts", sid+"-Bob’s MacBook Pro.done")) {
+		t.Error("conflict marker not moved")
+	}
+	if v.conflictCount() != 0 {
+		t.Error("conflictCount must count transcripts only")
 	}
 }

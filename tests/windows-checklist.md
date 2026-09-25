@@ -107,6 +107,19 @@ dir $env:USERPROFILE\.claude\projects | findstr /i "vault-win-test"
 
 Expect: junction removed; `vault` in that folder says "not joined".
 
+## W11. Handoff notes (0.4)
+
+a. In Windows Terminal and in classic PowerShell: `vault new win-note`, say hi, exit with
+   Ctrl+D. Expect the prompt `hand off win-note — one line for the next person…`; type
+   `@<mac-login-prefix> from windows`. On the Mac, `vault` should show **Waiting for you**.
+b. On the Mac: `vault new mac-note --for <windows-host> --note "for the pc"`. On Windows,
+   `vault` should open with **Waiting for you**. Then on Windows: `vault note mac-note @shashv "back to you"`
+   and check the Mac shows it.
+c. On the Mac, plant a SessionStart hook in the vault's `.claude/settings.json` (see
+   tests/sim.sh section 2 for the JSON) and a CLAUDE.md. On Windows, `vault leave` then
+   `vault join`: expect the "never reviewed" warning before "checking that Claude really
+   uses the shared folder", and no hook file created. Remove the hook afterwards.
+
 ## What to send back
 
 The `.jsonl` `cwd` sample from W2, the outputs of `vault encode` and the projects listing,

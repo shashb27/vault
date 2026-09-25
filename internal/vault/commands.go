@@ -41,6 +41,8 @@ func Main(args []string) int {
 		err = cmdSessions(args)
 	case "rename":
 		err = cmdRename(args)
+	case "note":
+		err = cmdNote(args)
 	case "show", "log":
 		err = cmdShow(args)
 	case "status":
@@ -171,6 +173,32 @@ func cmdHome() error {
 		hint("vault new <name>        e.g.  vault new planning-review")
 		return nil
 	}
+	waiting := false
+	for _, s := range rows {
+		if s.Handoff && v.addressedToMe(s.HandoffTo) {
+			if !waiting {
+				out("%s", bold("Waiting for you"))
+				waiting = true
+			}
+			when := relTime(s.Mtime)
+			if t, err := time.Parse(time.RFC3339, s.HandoffAt); err == nil {
+				when = relTime(t.Unix())
+			}
+			lbl := s.Name
+			if lbl == "" {
+				lbl = "(unnamed) " + s.ID[:8]
+			}
+			line := fmt.Sprintf("  %s   from %s, %s", bold(lbl), s.HandoffBy, when)
+			if s.HandoffNote != "" {
+				line += fmt.Sprintf(" — \"%s\"", s.HandoffNote)
+			}
+			out("%s", line)
+			out(dim(fmt.Sprintf("    → vault resume \"%s\"", s.Label())))
+		}
+	}
+	if waiting {
+		out("")
+	}
 	printTable(rows, false, 8)
 	out("")
 	hint("vault resume <name>     continue one   ·   vault new <name>     start a new one   ·   vault help")
@@ -187,6 +215,7 @@ func printHelp() {
   vault resume [<name>]      continue a session (waits for sync, checks nobody is in it)
   vault sessions             list sessions: name, state, who started, who last touched
   vault show <name> [N]      read the last N turns before you jump in
+  vault note <name> [@who] [text]   leave or read the one-line handoff note for a session
   vault rename <old> <new>   give a session a better name
 
 %s
@@ -205,10 +234,13 @@ func printHelp() {
   vault version
 
 %s  resume --steal (take over someone's session)  ·  resume --now (skip the sync wait)
+       new/resume --for <who> --note "<text>"  set the handoff note without being asked at exit
        new/resume pass any other flags straight to claude (bypass-permissions flags are refused)
+       %s
 
 %s
 `, bold("vault"), Version, dim("https://github.com/"+repoSlug), bold("Everyday"), bold("Setup (once)"), bold("When something's off"), bold("Flags"),
+		dim("@name is a login or a machine name as 'vault members' lists them, not a person; a prefix works when it points at exactly one member"),
 		dim("The conversation is shared; the workbench is not — /rewind, background tasks, prompt\nhistory and your personal permissions stay on your own machine. Trust model: docs/safety.md"))
 }
 
@@ -288,6 +320,7 @@ func cmdJoin() error {
 	v.writeMembersMemory()
 	registryAdd(v.Root)
 
+	v.checkDrift() // a newcomer sees the shared instruction/permission files BEFORE the first Claude call
 	fmt.Print("  checking that Claude really uses the shared folder (one silent Claude call)…")
 	verified, stray := v.joinSelfTest()
 	fmt.Println()
@@ -406,6 +439,13 @@ func cmdNew(args []string) (int, error) {
 	if err := requireJoined(v); err != nil {
 		return 1, err
 	}
+	opts, args, err := takeNoteFlags(args)
+	if err != nil {
+		return 1, err
+	}
+	if opts, err = v.resolveNoteFlags(opts); err != nil {
+		return 1, err
+	}
 	name, steal := "", false
 	var rest []string
 	for i := 0; i < len(args); i++ {
@@ -443,7 +483,7 @@ func cmdNew(args []string) (int, error) {
 	out("%s starting shared session %s in vault %s", grn("▶"), bold(name), bold(v.Name))
 	out("  %s", dim("exit Claude (Ctrl+D or /exit) when you're done — that hands the session to the team."))
 	out("")
-	return v.launch(sid, steal, append([]string{"--session-id", sid, "--name", name}, rest...))
+	return v.launch(sid, steal, append([]string{"--session-id", sid, "--name", name}, rest...), opts)
 }
 
 func cmdResume(args []string) (int, error) {
@@ -452,6 +492,13 @@ func cmdResume(args []string) (int, error) {
 		return 1, err
 	}
 	if err := requireJoined(v); err != nil {
+		return 1, err
+	}
+	opts, args, err := takeNoteFlags(args)
+	if err != nil {
+		return 1, err
+	}
+	if opts, err = v.resolveNoteFlags(opts); err != nil {
 		return 1, err
 	}
 	target, userASP := "", ""
@@ -573,14 +620,99 @@ func cmdResume(args []string) (int, error) {
 			return 1, nil
 		}
 	}
-	reorient := v.reorientPrompt()
+	// read the note now: launch removes the marker
+	note := v.readMarker(sid)
+	if note != nil && (note.Note != "" || note.To != "") {
+		switch {
+		case note.To == "" || v.addressedToMe(note.To):
+			if note.Note != "" {
+				info("%s left a note for you: \"%s\"", note.User, note.Note)
+			} else {
+				info("%s handed this session to you", note.User)
+			}
+		default:
+			if note.Note != "" {
+				info("%s left a note for %s: \"%s\" — carrying on", note.User, note.To, note.Note)
+			} else {
+				info("%s handed this session to %s — carrying on", note.User, note.To)
+			}
+		}
+	}
+	reorient := v.reorientPrompt(note)
 	if userASP != "" {
 		reorient += "\n\n" + userASP
 	}
 	out("%s resuming %s — the whole conversation so far is in context.", grn("▶"), bold(label))
 	out("  %s", dim("exit Claude (Ctrl+D or /exit) when you're done to hand it back."))
 	out("")
-	return v.launch(sid, steal, append([]string{"--resume", sid, "--append-system-prompt", reorient}, rest...))
+	return v.launch(sid, steal, append([]string{"--resume", sid, "--append-system-prompt", reorient}, rest...), opts)
+}
+
+// ---------- note ----------
+
+func cmdNote(args []string) error {
+	v, err := requireVault()
+	if err != nil {
+		return err
+	}
+	if err := requireJoined(v); err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		return fail("usage: vault note <session> [@who] [\"text\"] | --clear   — leave or read the one-line handoff note")
+	}
+	sid, err := resolve(args[0], v.sessions())
+	if err != nil {
+		return err
+	}
+	s := v.sessionByID(sid)
+	label := s.Label()
+	if l := readLease(v.leasePath(sid)); l != nil && !l.Expired {
+		return fail("%s@%s is in that session right now — leave the note after they exit.", l.User, l.Host)
+	}
+	m := v.readMarker(sid)
+	if m == nil {
+		f := filepath.Join(v.SessionsDir, sid+".jsonl")
+		fi, statErr := os.Stat(f)
+		_, held := v.activeLeases()[sid]
+		if statErr != nil || !tailValid(f) || held || time.Since(fi.ModTime()) <= idleOKSecs*time.Second {
+			return fail("'%s' has no clean-exit marker yet (someone may still be in it) — resume and exit it cleanly, then leave the note.", label)
+		}
+		m = &Marker{User: v.self.User, Host: v.self.Host, ReleasedAt: nowISO()}
+	}
+	if len(args) == 1 {
+		if m.Note == "" && m.To == "" {
+			out("(no note)")
+		} else {
+			out("for %s: \"%s\"", toOrAnyone(m.To), m.Note)
+		}
+		return nil
+	}
+	if args[1] == "--clear" {
+		m.To, m.Note = "", ""
+		if err := v.writeMarker(sid, *m); err != nil {
+			return fail("could not write the marker: %v", err)
+		}
+		ok("cleared the note on %s", label)
+		return nil
+	}
+	to, note := parseNote(strings.Join(args[1:], " "))
+	if to != "" {
+		if canon, cands := v.matchMember(to); canon != "" {
+			to = canon
+		} else {
+			warn("no member matches '%s' (members: %s) — stored as typed", to, strings.Join(cands, ", "))
+		}
+	}
+	if noteHasSecret(note) {
+		return fail("that note looks like it contains a secret — not stored. Everyone in the vault can read markers.")
+	}
+	m.To, m.Note = to, note
+	if err := v.writeMarker(sid, *m); err != nil {
+		return fail("could not write the marker: %v", err)
+	}
+	ok("note on %s — for %s: \"%s\"", label, toOrAnyone(m.To), m.Note)
+	return nil
 }
 
 func cmdPrivate(args []string) (int, error) {
@@ -681,7 +813,11 @@ func cmdShow(args []string) error {
 	if isCloudPath(f) {
 		os.ReadFile(f)
 	}
-	out("%s  %s", bold(s.Label()), dim(fmt.Sprintf("last %d turns · started by %s", n, s.Owner)))
+	hdr := fmt.Sprintf("last %d turns · started by %s", n, s.Owner)
+	if s.Handoff && (s.HandoffNote != "" || s.HandoffTo != "") {
+		hdr += fmt.Sprintf(" · handed off by %s to %s: \"%s\"", s.HandoffBy, toOrAnyone(s.HandoffTo), s.HandoffNote)
+	}
+	out("%s  %s", bold(s.Label()), dim(hdr))
 	out("")
 	printTurns(turns(f, n), 3000)
 	hint("vault resume \"%s\"", s.Label())
@@ -783,10 +919,17 @@ func cmdStatus(args []string) error {
 	} else {
 		out("  transcript %s", yel("incomplete — OneDrive still delivering it"))
 	}
-	handed := fileExists(filepath.Join(v.Dir, "handoff", sid+".done"))
+	handed := fileExists(v.markerPath(sid))
 	if handed {
-		b, _ := os.ReadFile(filepath.Join(v.Dir, "handoff", sid+".done"))
-		out("  handoff    %s (%s)", grn("clean"), strings.TrimSpace(string(b)))
+		if m := v.readMarker(sid); m != nil {
+			out("  handoff    %s — by %s@%s %s", grn("clean"), m.User, m.Host, m.ReleasedAt)
+			if m.Note != "" || m.To != "" {
+				out("             for %s: \"%s\"", toOrAnyone(m.To), m.Note)
+			}
+		} else {
+			b, _ := os.ReadFile(v.markerPath(sid))
+			out("  handoff    %s (%s)", grn("clean"), strings.TrimSpace(string(b)))
+		}
 	} else {
 		out("  handoff    %s — last person may still be in it", yel("no clean-exit marker"))
 	}

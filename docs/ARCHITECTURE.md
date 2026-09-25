@@ -22,7 +22,7 @@ internal/vault/
   transcript.go              scan (cwd, custom-title, first prompt), tailValid, lastCwd, turns(), appendTitle
   index.go                   build index (cache by size+mtime), states, resolve(name|prefix|uuid)
   lease.go                   per-session leases, heartbeat goroutine, legacy vault-wide lease
-  handoff.go                 markers, upload wait, secrets scan of appended bytes
+  handoff.go                 markers with to/note, member matching (@login/@host), note flags, self-test args
   drift.go                   CLAUDE.md / settings hash tracking, bypass-permissions lockdown
   registry.go                vaults joined on this machine
   claude.go                  find and exec `claude`; join self-test with nonce
@@ -76,5 +76,6 @@ Cannot be verified from the Mac; `tests/windows-checklist.md` walks through it.
 
 - `go test ./...`: encodePath (mac, Windows, unicode, >200 chars), resolve, index states,
   lease expiry, secrets patterns, conflict-name parsing. Pure functions on fixtures.
-- `tests/sim.sh`: unchanged end-to-end suite, run with `VAULT_BIN=dist/vault-darwin-arm64`.
+- `tests/sim.sh`: end-to-end suite, run with `VAULT_BIN=…`; 0.4 checks are guarded by a
+  capability probe (`vault help` lists `vault note`) so `legacy/vault.sh` still passes its 65.
 - Windows: manual checklist until a Windows CI runner with Claude Code is available.

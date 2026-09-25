@@ -158,12 +158,19 @@ func printTable(rows []*Session, numbered bool, limit int) {
 		}
 		line += name + "  " + st + "  " + pad(s.Owner, wOwn) + "  " + pad(s.LastBy, wLast) + "  " + pad(relTime(s.Mtime), 11) + "  " + sz + "  " + dim(s.ID[:8])
 		out("%s", line)
+		ind := "   "
+		if numbered {
+			ind = "        "
+		}
 		if s.Name == "" && s.FirstPrompt != "" {
-			ind := "   "
-			if numbered {
-				ind = "        "
-			}
 			out(dim(fmt.Sprintf("%s\"%s\"", ind, s.FirstPrompt)))
+		}
+		if s.Handoff && (s.HandoffNote != "" || s.HandoffTo != "") {
+			if s.HandoffTo != "" {
+				out(dim(fmt.Sprintf("%sfor %s: \"%s\"", ind, s.HandoffTo, s.HandoffNote)))
+			} else {
+				out(dim(fmt.Sprintf("%snote: \"%s\"", ind, s.HandoffNote)))
+			}
 		}
 	}
 	if limit > 0 && len(rows) > limit {

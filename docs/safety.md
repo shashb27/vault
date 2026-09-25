@@ -41,6 +41,15 @@ Mitigations built in:
 - vault refuses to launch if the shared settings set `defaultMode: bypassPermissions`,
   and refuses `--dangerously-skip-permissions` / `--permission-mode bypassPermissions`
   inside a vault. Use `vault private` for that.
+- `vault join` shows those files *before* its first Claude call, and that self-test runs
+  with `--setting-sources user --strict-mcp-config`, so shared hooks, env, apiKeyHelper and
+  project MCP servers cannot execute on a newcomer's first call (observed on Claude Code
+  2.1.280, 2026-09-24: a planted SessionStart hook fired with plain `claude -p` and did not
+  with those flags). `--bare` is not used because it never reads OAuth/keychain logins.
+  Normal `vault new`/`resume` launches are not isolated; that is what the drift warning is for.
+- Handoff notes reach Claude as one quoted, descriptive sentence in the resume prompt,
+  printed to you first, capped at 280 characters and refused if they look like a secret.
+  Markers are as editable as transcripts: not authenticated.
 - Never click "don't ask again" inside a vault. That grant is per-person, but it's the
   exact thing a poisoned `CLAUDE.md` would exploit.
 - Only vault with people you'd trust to run commands near you.

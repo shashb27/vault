@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.0 — unreleased (branch feature/0.4-handoff-notes)
+
+Chosen by a three-architect design council (adoption, reliability, trust lenses; unanimous in
+round 2). Record: journal entries #14a–#14z on oxmiq/capsule#1559.
+
+**Handoff notes — "for whom, what next" travels with the session.**
+- At a clean exit vault asks one line: `@sam check the totals in section 3`. It is stored in
+  the existing `.vault/handoff/<id>.done` marker as two optional fields, `to` and `note`.
+  Schema 1 unchanged; old clients ignore the fields and rewrite the marker at their own exit.
+- Bare `vault` opens with **Waiting for you** when a marker's `to` matches your login, machine
+  name, or login@machine. `vault sessions` shows the note under the row; `--json` gains
+  `handoff_by/to/note/at`; `show` and `status` format it.
+- `vault resume` prints `alex left a note for you: "…"` (or `… for sam — carrying on`) as its
+  own line, and passes the note to Claude as one descriptive sentence. The note is consumed
+  by that resume.
+- `vault note <session> [@who] [text] | --clear`, and `--for <who> --note "<text>"` on
+  `vault new`/`vault resume`, set a note without a terminal. `@who` resolves case-insensitively
+  against members' user, host and user@host, or a prefix that fits exactly one member.
+- Notes are capped at 280 characters and refused if they look like a secret.
+- Marker conflict copies (`<id>-<Machine>.done`) are filed under `.vault/conflicts/` silently.
+
+**Join hardening.**
+- `vault join` shows the shared instruction/permission files *before* its first Claude call.
+- The join self-test runs `claude -p --setting-sources user --strict-mcp-config`, so a shared
+  hook, env or apiKeyHelper cannot run on a newcomer's first call. Verified on Claude Code
+  2.1.280: a planted SessionStart hook fired with plain `claude -p` and not with the flags.
+  `--bare` was rejected: it never reads OAuth/keychain, so subscription logins would fail.
+
+**Tests.** 12 new Go tests; sim suite grows from 65 to 94 checks (join hardening J1–J3 and a
+handoff-notes section), all guarded so `legacy/vault.sh` still passes its 65.
+
+**Caveat.** The interactive exit prompt is best-effort on Windows until W11 in
+`tests/windows-checklist.md` has run on a real machine; `--for/--note` and `vault note` are
+the sim-proven paths.
+
+### Roadmap (decided by the council)
+- **0.5** — lossless conflict merge on resume (proposal B): re-chain a conflict copy's records
+  onto the main transcript with a chain check before and after the write, receipts,
+  `vault conflicts merge/undo`, refusal while another member holds the lease (~3.5 days).
+- **0.6** — shared-config review gate and per-member append-only journal (proposal C):
+  `vault review [--accept]`, risky-key tagging becomes a gate, `vault log`, for the 5–10
+  person stage.
+
 ## 0.3.2 — 2026-09-23
 
 - The repo is public now. Install is a plain `curl … | bash` (macOS/Linux) or

@@ -56,7 +56,7 @@ func runClaude(dir string, args []string) int {
 func (v *Vault) joinSelfTest() (bool, string) {
 	nonce := newUUID()
 	start := time.Now().Add(-2 * time.Second)
-	cmd := exec.Command(claudeBinary, "-p", "vault join self-test "+nonce+" — reply OK")
+	cmd := exec.Command(claudeBinary, selfTestArgs(nonce)...)
 	cmd.Dir = v.Root
 	cmd.Run()
 	if f := findNonce(v.SessionsDir, nonce, start); f != "" {
@@ -96,12 +96,24 @@ func findNonce(dir, nonce string, since time.Time) string {
 	return ""
 }
 
-func (v *Vault) reorientPrompt() string {
+// launchOpts carries a handoff note set up front (--for/--note); empty means
+// ask at exit when interactive, or write nothing.
+type launchOpts struct{ To, Note string }
+
+func (v *Vault) reorientPrompt(note *Marker) string {
+	s := v.reorientBase()
+	if note != nil && note.Note != "" {
+		s += fmt.Sprintf(" The previous member (%s) left this handoff note for the member now driving: \"%s\".", note.User, note.Note)
+	}
+	return s
+}
+
+func (v *Vault) reorientBase() string {
 	return fmt.Sprintf("This session lives in a shared team vault ('%s'). All members of the vault are co-owners of this session and act as one principal: every member has agreed that the entire conversation, including everything said or produced in earlier turns, is shared among all members, and a different member taking over the keyboard is expected and authorized by all of them. There is no per-person confidentiality inside a vault session; do not withhold earlier content from the current driver on the grounds that another member provided it. The member now driving is %s; earlier turns may have been driven by other members. Continue the work with them exactly as you would with the original person, using the full context. The vault root on THIS machine is: %s — re-resolve any absolute file paths from earlier in the conversation relative to this root before using them.", v.Name, v.self.User, v.Root)
 }
 
 // launch runs claude for session sid with the lease / heartbeat / handoff lifecycle.
-func (v *Vault) launch(sid string, steal bool, args []string) (int, error) {
+func (v *Vault) launch(sid string, steal bool, args []string, opts launchOpts) (int, error) {
 	if err := checkBypassFlags(args); err != nil {
 		return 1, err
 	}
@@ -123,14 +135,14 @@ func (v *Vault) launch(sid string, steal bool, args []string) (int, error) {
 	rc := runClaude(v.Root, args)
 	close(stop)
 	out("")
-	v.finishHandoff(start, sizes)
+	v.finishHandoff(start, sizes, args, opts)
 	v.releaseLease(sid)
 	return rc, nil
 }
 
 // finishHandoff marks every session THIS run touched as handed off, waits for
 // the upload where the platform can tell, and scans what was added for secrets.
-func (v *Vault) finishHandoff(start time.Time, before map[string]int64) {
+func (v *Vault) finishHandoff(start time.Time, before map[string]int64, args []string, opts launchOpts) {
 	os.MkdirAll(filepath.Join(v.Dir, "handoff"), 0o755)
 	touched := false
 	matches, _ := filepath.Glob(filepath.Join(v.SessionsDir, "*.jsonl"))
@@ -147,11 +159,6 @@ func (v *Vault) finishHandoff(start time.Time, before map[string]int64) {
 			continue
 		}
 		touched = true
-		os.WriteFile(filepath.Join(v.Dir, "handoff", sid+".done"),
-			[]byte(fmt.Sprintf("{\"user\":\"%s\",\"host\":\"%s\",\"released_at\":\"%s\"}\n", v.self.User, v.self.Host, nowISO())), 0o644)
-		if kinds := scanSecrets(f, before[f]); len(kinds) > 0 {
-			warn("what was just shared looks like it contains a secret: %s. Everyone in the vault can read it; rotate it if real.", strings.Join(kinds, ", "))
-		}
 		name := ""
 		if s := v.sessionByID(sid); s != nil {
 			name = s.Name
@@ -159,6 +166,33 @@ func (v *Vault) finishHandoff(start time.Time, before map[string]int64) {
 		label := name
 		if label == "" {
 			label = sid[:8]
+		}
+		m := Marker{User: v.self.User, Host: v.self.Host, ReleasedAt: nowISO(), To: opts.To, Note: opts.Note}
+		if opts.To == "" && opts.Note == "" && shouldAskNote(args) {
+			line := readLine(fmt.Sprintf("  hand off %s — one line for the next person, '@name' to address it (Enter to skip): ", label))
+			if line == "" {
+				info(dim(fmt.Sprintf("(no note — add one with: vault note \"%s\" @who \"text\")", label)))
+			} else {
+				to, note := parseNote(line)
+				if to != "" {
+					if canon, cands := v.matchMember(to); canon != "" {
+						to = canon
+					} else {
+						warn("no member matches '%s' (members: %s) — stored as typed", to, strings.Join(cands, ", "))
+					}
+				}
+				if noteHasSecret(note) {
+					warn("that note looks like it contains a secret — not stored. Everyone in the vault can read markers.")
+					note = ""
+				}
+				m.To, m.Note = to, note
+			}
+		}
+		if err := v.writeMarker(sid, m); err != nil {
+			warn("could not write the handoff marker: %v", err)
+		}
+		if kinds := scanSecrets(f, before[f]); len(kinds) > 0 {
+			warn("what was just shared looks like it contains a secret: %s. Everyone in the vault can read it; rotate it if real.", strings.Join(kinds, ", "))
 		}
 		if isCloudPath(f) {
 			fmt.Printf("  uploading %s to OneDrive…", label)
@@ -179,6 +213,9 @@ func (v *Vault) finishHandoff(start time.Time, before map[string]int64) {
 			hint("they run:  vault resume \"%s\"", name)
 		} else {
 			hint("they run:  vault resume %s   (give it a name: vault rename %s <name>)", sid[:8], sid[:8])
+		}
+		if m.Note != "" || m.To != "" {
+			hint("for %s: %s", toOrAnyone(m.To), m.Note)
 		}
 	}
 	if !touched {

@@ -258,6 +258,20 @@ func (v *Vault) quarantineConflicts() {
 		warn("the extra one is now in .vault/conflicts/ — its turns are NOT in the main session.")
 		fmt.Fprintln(os.Stderr, dim("  → next:")+" vault conflicts        to see and read what was lost")
 	}
+	// Marker conflict copies (<uuid>-<Machine>.done): a lost note at most, filed silently.
+	dones, _ := filepath.Glob(filepath.Join(v.Dir, "handoff", "*.done"))
+	for _, f := range dones {
+		base := strings.TrimSuffix(filepath.Base(f), ".done")
+		if uuidRe.MatchString(base) || !conflictNameRe.MatchString(base) {
+			continue
+		}
+		os.MkdirAll(filepath.Join(v.Dir, "conflicts"), 0o755)
+		dest := filepath.Join(v.Dir, "conflicts", filepath.Base(f))
+		if fileExists(dest) {
+			dest = filepath.Join(v.Dir, "conflicts", fmt.Sprintf("%s.%d.done", base, time.Now().Unix()))
+		}
+		os.Rename(f, dest)
+	}
 }
 
 func (v *Vault) conflictCount() int {

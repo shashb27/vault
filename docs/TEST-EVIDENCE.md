@@ -171,3 +171,23 @@ binary: correct names/owners/states, real `fileproviderctl` state, exit codes as
   pre-releases (beta.1 installer/update failed); raw.githubusercontent.com returns 404 on
   a private repo (README now uses `gh api`); bash 3.2 read `$tag…` as one variable name
   in a C locale.
+
+---
+
+# 0.4.0 round — handoff notes + join hardening (2026-09-24)
+
+Built from the design council's plan (journal #14a–#14z). Claude Code 2.1.280, macOS.
+
+| Check | Result |
+|---|---|
+| `go vet ./... && go test ./...` (12 new tests: marker round-trip/legacy/garbage, parseNote, secrets, member matching, addressedToMe, Session JSON, index reads markers, interactive args, reorient sentence, self-test args, note flags, marker conflict sweep) | pass |
+| `tests/sim.sh` against `dist/vault` 0.4.0-dev | **94 pass, 0 fail** (65 + J1–J3 + 26 handoff-note checks) |
+| `VAULT_BIN=legacy/vault.sh tests/sim.sh` | **65 pass, 0 fail**; both new blocks skipped by the capability probe |
+| Hook isolation, by hand: untrusted temp dir with a project `SessionStart` command hook | plain `claude -p` created the hook file; `claude -p --setting-sources user --strict-mcp-config` did not |
+| Compatibility: released v0.3.2 binary reading a marker that carries `to`/`note` | lists the session as `handed off`, ignores the fields |
+| Read-only smoke on the live Testing-vault with the 0.4 binary (`vault`, `sessions`, `sessions --json`, `status`, `doctor`, `members`, `help`) | all run; `ls -la` of handoff/, leases/, conflicts/ identical before and after; legacy marker rendered via the formatted path (`clean — by … 2026-09-03T06:43:09Z`); no `Waiting for you` (no `to` fields exist yet); `--json` carries `handoff_by`/`handoff_at` |
+
+Not covered: the interactive exit prompt on Windows (W11 in tests/windows-checklist.md).
+Open question the council raised for Shash: when did the 3-way fork in Testing-vault happen
+relative to 0.2.0 (per-session leases + resume gate, 2026-09-19), and did both people launch
+through vault? If it post-dates 0.2 with both through vault, the 0.5 merge should move up.

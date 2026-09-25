@@ -22,6 +22,10 @@ type Session struct {
 	Torn        bool   `json:"torn"`
 	Handoff     bool   `json:"handoff"`
 	State       string `json:"state"`
+	HandoffBy   string `json:"handoff_by,omitempty"`
+	HandoffTo   string `json:"handoff_to,omitempty"`
+	HandoffNote string `json:"handoff_note,omitempty"`
+	HandoffAt   string `json:"handoff_at,omitempty"`
 }
 
 type indexEntry struct {
@@ -79,9 +83,18 @@ func (v *Vault) buildIndex(dir string) []*Session {
 				FirstPrompt: r.FirstPrompt, Size: st.Size(), Mtime: mt}
 		}
 		newIdx.Sessions[sid] = e
-		rows = append(rows, &Session{ID: sid, Name: e.Name, Owner: e.Owner, LastBy: e.LastBy, FirstPrompt: e.FirstPrompt,
-			Size: e.Size, Mtime: e.Mtime, Torn: !tailValid(path),
-			Handoff: fileExists(filepath.Join(v.Dir, "handoff", sid+".done"))})
+		markerPath := v.markerPath(sid)
+		if dir != v.SessionsDir { // archive/: markers travel next to the transcript
+			markerPath = filepath.Join(dir, sid+".done")
+		}
+		row := &Session{ID: sid, Name: e.Name, Owner: e.Owner, LastBy: e.LastBy, FirstPrompt: e.FirstPrompt,
+			Size: e.Size, Mtime: e.Mtime, Torn: !tailValid(path), Handoff: fileExists(markerPath)}
+		if row.Handoff {
+			if m := readMarkerFile(markerPath); m != nil {
+				row.HandoffBy, row.HandoffTo, row.HandoffNote, row.HandoffAt = m.User, m.To, m.Note, m.ReleasedAt
+			}
+		}
+		rows = append(rows, row)
 	}
 	if b, err := json.MarshalIndent(newIdx, "", " "); err == nil {
 		os.WriteFile(idxPath, b, 0o644)

@@ -48,9 +48,19 @@ check 'echo "$out" | grep -q "vault new <name>"' "next-step hint after join"
 
 echo; echo "== 2. bob: joins the same store =="
 ln -s "$U1/.vault" "$U2/.vault"
+if [[ $NOTES == 1 ]]; then   # shared instruction/permission files + a SessionStart hook, planted where bob's self-test runs
+  mkdir -p "$U2/.claude"; printf '# team rules\n' > "$U2/CLAUDE.md"
+  printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch %s/hook-ran"}]}]}}\n' "$BASE" > "$U2/.claude/settings.json"
+fi
 out="$(as_bob join 2>&1)"; rc=$?
 check '[[ $rc == 0 ]]' "bob join exit 0"
 check '[[ $(python3 -c "import json;print(len(json.load(open(\"$U1/.vault/users.json\"))[\"users\"]))") == 2 ]]' "users.json has 2 members"
+if [[ $NOTES == 1 ]]; then
+  check 'echo "$out" | grep -q "verified: Claude writes into the vault"' "J1: self-test still lands in the vault with --setting-sources user --strict-mcp-config"
+  check '[[ $(echo "$out" | grep -n "never reviewed" | head -1 | cut -d: -f1) -lt $(echo "$out" | grep -n "checking that Claude really uses" | head -1 | cut -d: -f1) ]]' "J2: drift warning printed before the self-test"
+  check '[[ ! -e "$BASE/hook-ran" ]]' "J3: shared SessionStart hook did not fire during the join self-test"
+  rm -f "$U2/.claude/settings.json" "$U2/CLAUDE.md" "$BASE/hook-ran"; rmdir "$U2/.claude" 2>/dev/null
+fi
 
 echo; echo "== 3. alice: vault new falcon (named session, -p) =="
 out="$(as_alice new falcon -p "For the whole team: our release train is named FALCON-42. Reply with just OK." 2>&1)"; rc=$?
@@ -203,6 +213,61 @@ done
 check '[[ "${hb:-0}" -ge 1 ]]' "lease heartbeat refreshed during a run (heartbeats=$hb)"
 wait $HBPID
 check '[[ -z "$(ls "$U1/.vault/leases"/*.json 2>/dev/null)" ]]' "lease removed after the run (heartbeat did not resurrect it)"
+
+echo; echo "== 16. handoff notes (0.4) =="
+if [[ $NOTES == 1 ]]; then
+out="$(as_alice new heron --for bob --note "check the totals in section 3" -p "Reply OK." 2>&1)"; rc=$?
+check '[[ $rc == 0 ]]' "new --for/--note exit 0"
+HSID="$(as_alice sessions --json 2>/dev/null | python3 -c 'import json,sys; print([s["id"] for s in json.load(sys.stdin) if s["name"]=="heron"][0])')"
+check 'grep -q "\"to\":\"bob\"" "$U1/.vault/handoff/$HSID.done"' "marker carries to=bob"
+check 'grep -q "section 3" "$U1/.vault/handoff/$HSID.done"' "marker carries the note"
+check 'echo "$out" | grep -q "for bob: check the totals"' "exit output prints the note line"
+out="$(as_bob 2>&1)"
+echo "$out" | sed 's/^/    /' | head -8
+check 'echo "$out" | grep -q "Waiting for you" && echo "$out" | grep -q "heron" && echo "$out" | grep -q "section 3"' "bob's bare vault leads with Waiting for you"
+out="$(as_alice 2>&1)"
+check '! echo "$out" | grep -q "Waiting for you" && echo "$out" | grep -q "for bob"' "alice's bare vault: no Waiting for you, note shown under the row"
+check 'as_alice sessions --json 2>/dev/null | python3 -c "import json,sys; s=[x for x in json.load(sys.stdin) if x[\"name\"]==\"heron\"][0]; assert s[\"handoff_to\"]==\"bob\" and \"section 3\" in s[\"handoff_note\"] and s[\"handoff_by\"]==\"alice\""' "sessions --json has handoff_by/to/note"
+out="$(as_alice show heron 2>&1)"
+check 'echo "$out" | grep -q "to bob"' "show header names the addressee"
+out="$(as_alice status heron 2>&1)"
+check 'echo "$out" | grep -q "for bob"' "status formats the marker"
+out="$(as_bob resume heron -p "Reply OK." 2>&1)"; rc=$?
+echo "$out" | sed 's/^/    /' | head -4
+check '[[ $rc == 0 ]] && echo "$out" | grep -q "alice left a note for you: \"check the totals in section 3\""' "resume prints the note as vault's own line (not model prose)"
+check 'as_alice sessions --json 2>/dev/null | python3 -c "import json,sys; s=[x for x in json.load(sys.stdin) if x[\"name\"]==\"heron\"][0]; assert s[\"handoff_by\"]==\"bob\""' "after bob's exit the marker is bob's"
+check '[[ -f "$U1/.vault/handoff/$HSID.done" ]] && ! grep -q "\"to\"" "$U1/.vault/handoff/$HSID.done"' "note consumed on resume"
+out="$(as_bob 2>&1)"
+check '! echo "$out" | grep -q "Waiting for you"' "nothing waiting for bob any more"
+out="$(as_alice note heron @bob "second pass please" 2>&1)"; rc=$?
+check '[[ $rc == 0 ]] && grep -q "second pass please" "$U1/.vault/handoff/$HSID.done"' "vault note rewrites the marker"
+check 'as_alice sessions 2>&1 | grep -q "second pass"' "sessions shows the new note"
+check 'grep -q "\"user\":\"bob\"" "$U1/.vault/handoff/$HSID.done"' "vault note keeps user/host/released_at of the last exit"
+out="$(as_alice note heron @nobody "x" 2>&1)"; rc=$?
+check '[[ $rc == 0 ]] && echo "$out" | grep -q "no member matches .nobody." && echo "$out" | grep -q "alice@alice-mac"' "unknown @name warns with the member list, stored as typed"
+out="$(as_alice note heron --clear 2>&1)"; rc=$?
+check '[[ $rc == 0 ]] && ! grep -q "\"to\"" "$U1/.vault/handoff/$HSID.done" && ! grep -q "\"note\"" "$U1/.vault/handoff/$HSID.done"' "note --clear removes both fields"
+printf '{"user":"carol","host":"carol-mac","pid":1,"session_id":"%s","acquired_at":"%s","ttl_minutes":60}\n' "$HSID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$U1/.vault/leases/$HSID.json"
+out="$(as_alice note heron @bob "y" 2>&1)"; rc=$?
+check '[[ $rc != 0 ]] && echo "$out" | grep -q "in that session right now"' "note refused while a lease is held"
+rm -f "$U1/.vault/leases/$HSID.json"
+out="$(as_alice resume heron --now --for bob-mac --note "host test" -p "Reply OK." 2>&1 </dev/null)"; rc=$?
+check '[[ $rc == 0 ]] && grep -q "\"to\":\"bob-mac\"" "$U1/.vault/handoff/$HSID.done"' "--for <host> on resume, no tty, no prompt hang"
+out="$(as_bob 2>&1)"
+check 'echo "$out" | grep -q "Waiting for you"' "addressed by host shows on bob's machine (Windows self-handoff stand-in)"
+out="$(as_alice 2>&1)"
+check '! echo "$out" | grep -q "Waiting for you"' "…and not on alice's"
+out="$(as_alice resume heron --now -p "Reply OK." 2>&1 </dev/null)"; rc=$?
+check '[[ $rc == 0 ]] && echo "$out" | grep -q "left a note for bob-mac" && echo "$out" | grep -q "carrying on"' "note addressed elsewhere: info line, not a refusal"
+out="$(as_alice resume heron --now --for alice@alice-mac --note "self" -p "Reply OK." 2>&1 </dev/null)"; rc=$?
+check '[[ $rc == 0 ]] && grep -q "\"to\":\"alice@alice-mac\"" "$U1/.vault/handoff/$HSID.done"' "--for user@host stored as typed"
+out="$(as_alice 2>&1)"
+check 'echo "$out" | grep -q "Waiting for you"' "user@host addressing matches self"
+out="$(as_alice new nomatch --for nobody -p "x" 2>&1)"; rc=$?
+check '[[ $rc != 0 ]] && echo "$out" | grep -q "no member matches" && ! as_alice sessions 2>&1 | grep -q nomatch' "--for with an unknown member is refused before launch"
+else
+  echo "  (skipped: no 'vault note' in $VAULT)"
+fi
 
 echo; echo "== 14. bob leaves =="
 out="$(as_bob leave 2>&1)"; rc=$?

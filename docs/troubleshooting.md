@@ -71,6 +71,25 @@ Claude on your Mac. Skim them before working. See [safety.md](safety.md).
 Trust and permission grants are per-person, by design. Grant them yourself. Never
 "don't ask again" inside a vault.
 
+## `vault note` says "… is in that session right now" or "has no clean-exit marker yet"
+
+Notes live in the clean-exit marker. While someone holds the session, or before anyone has
+exited it cleanly (unless it has been idle over 15 minutes), there is nothing safe to write
+to. Resume it, exit cleanly, then leave the note, or leave it at your own exit.
+
+## "no member matches 'x'"
+
+`@x` must be a login, a machine name, or login@machine exactly as `vault members` lists
+them, or a prefix that fits exactly one member. `@shash` fits nobody if two members' names
+start with it; `@shashv` does. On Windows the login can be `Administrator`, so address the
+machine name instead.
+
+## No "Waiting for you" although a teammate addressed me
+
+They addressed a token that is not your login or machine name on *this* machine. Check
+`vault members` for how this machine is listed (Windows logins are often `Administrator`);
+the note still shows under the session row, and `vault resume` works regardless.
+
 ## "refusing to start: … sets defaultMode to bypassPermissions"
 
 Someone put `"defaultMode": "bypassPermissions"` in the vault's shared `.claude/settings`.
